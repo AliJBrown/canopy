@@ -329,11 +329,7 @@ export default function ProjectBoard() {
           projectId={project.id}
           defaultStatus={createDefaults.status || 'backlog'}
           defaultParentId={createDefaults.parent_id || null}
-          onClose={() => {
-            setShowCreate(false);
-            qc.invalidateQueries(boardQueryKey);
-            qc.invalidateQueries(['tickets', 'list', project?.id]);
-          }}
+          onClose={() => setShowCreate(false)}
         />
       )}
 

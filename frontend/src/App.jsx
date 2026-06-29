@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import ErrorBoundary from './components/ErrorBoundary';
 import { AppProvider, useApp } from './context/AppContext';
 import Layout from './components/Layout';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -51,16 +52,16 @@ export default function App() {
           <Route element={<ProtectedRoute />}>
             <Route element={<Layout />}>
               <Route index element={<Navigate to="/projects" replace />} />
-              <Route path="projects" element={<ProjectsPage />} />
-              <Route path="goals" element={<OrgGoalsPage />} />
-              <Route path="my-goals" element={<MyGoalsPage />} />
-              <Route path="p/:projectKey" element={<ProjectBoard />} />
-              <Route path="p/:projectKey/reports" element={<ReportsPage />} />
-              <Route path="p/:projectKey/goals" element={<GoalsPage />} />
-              <Route path="p/:projectKey/automations" element={<AutomationsPage />} />
-              <Route path="p/:projectKey/:view" element={<ProjectBoard />} />
+              <Route path="projects" element={<ErrorBoundary><ProjectsPage /></ErrorBoundary>} />
+              <Route path="goals" element={<ErrorBoundary><OrgGoalsPage /></ErrorBoundary>} />
+              <Route path="my-goals" element={<ErrorBoundary><MyGoalsPage /></ErrorBoundary>} />
+              <Route path="p/:projectKey" element={<ErrorBoundary><ProjectBoard /></ErrorBoundary>} />
+              <Route path="p/:projectKey/reports" element={<ErrorBoundary><ReportsPage /></ErrorBoundary>} />
+              <Route path="p/:projectKey/goals" element={<ErrorBoundary><GoalsPage /></ErrorBoundary>} />
+              <Route path="p/:projectKey/automations" element={<ErrorBoundary><AutomationsPage /></ErrorBoundary>} />
+              <Route path="p/:projectKey/:view" element={<ErrorBoundary><ProjectBoard /></ErrorBoundary>} />
               <Route element={<ProtectedRoute adminOnly />}>
-                <Route path="admin" element={<AdminPage />} />
+                <Route path="admin" element={<ErrorBoundary><AdminPage /></ErrorBoundary>} />
               </Route>
             </Route>
           </Route>
