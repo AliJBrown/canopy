@@ -423,8 +423,8 @@ function PermissionsTab({ users }) {
       {categoryOrder.map(category => {
         const catDefs = definitions.filter(d => d.category === category);
         return (
-          <div key={category} className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-            <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-100">
+          <div key={category} className="bg-white rounded-xl border border-slate-200">
+            <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-100 rounded-t-xl">
               <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{category}</span>
             </div>
             <div className="divide-y divide-slate-50">
@@ -500,7 +500,7 @@ function PermissionRow({ def, grant, allUsers, onRemove, onGrant, isPending }) {
               <Plus size={11} /> Grant
             </button>
             {showPicker && (
-              <div className="absolute right-0 top-full mt-1 z-10 bg-white rounded-lg border border-slate-200 shadow-lg overflow-hidden min-w-[220px]">
+              <div className="absolute right-0 top-full mt-1 z-50 bg-white rounded-lg border border-slate-200 shadow-lg overflow-hidden min-w-[220px]">
                 <div className="max-h-48 overflow-y-auto divide-y divide-slate-50">
                   {eligible.map(u => (
                     <button

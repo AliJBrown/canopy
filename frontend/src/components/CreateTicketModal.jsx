@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { X } from 'lucide-react';
-import { createTicket, getTickets } from '../api/tickets';
+import { createTicket, getTicketList } from '../api/tickets';
 import { getProjectMembers } from '../api/admin';
 import { getSprints } from '../api/sprints';
 import { getLabels } from '../api/labels';
@@ -42,12 +42,11 @@ export default function CreateTicketModal({ projectId, defaultStatus = 'backlog'
     enabled: !!projectId,
   });
   const assignableUsers = members.filter(m => m.role !== 'viewer');
-  const { data: ticketsRes } = useQuery({
-    queryKey: ['tickets', { projectId }],
-    queryFn: () => getTickets({ projectId }),
+  const { data: tickets = [] } = useQuery({
+    queryKey: ['tickets', 'parent-select', projectId],
+    queryFn: () => getTicketList({ projectId }),
     enabled: !!projectId,
   });
-  const tickets = ticketsRes?.tickets || ticketsRes || [];
   const { data: labels = [] } = useQuery({
     queryKey: ['labels', projectId],
     queryFn: () => getLabels(projectId),
