@@ -517,7 +517,7 @@ function AttachmentsSection({ ticketId, canWrite }) {
 export default function TicketPanel({ ticketId, projectId, projectRole, onClose, onTicketChange, statuses = [] }) {
   const qc = useQueryClient();
   const { user } = useApp();
-  const { canWrite, canDelete, canManageProject } = useProjectPermissions({ my_role: projectRole });
+  const { canWrite, canDelete, canManageProject } = useProjectPermissions({ id: projectId, my_role: projectRole });
 
   const [commentBody, setCommentBody] = useState('');
   const [updateError, setUpdateError] = useState('');
