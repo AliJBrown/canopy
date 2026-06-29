@@ -122,7 +122,7 @@ export default function LoginPage() {
                 <div className="flex-1 h-px bg-slate-200" />
               </div>
               <a
-                href="/api/auth/google"
+                href={`${import.meta.env.VITE_API_URL || ''}/api/auth/google`}
                 className="flex items-center justify-center gap-2.5 w-full border border-slate-200 rounded-lg py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
               >
                 <svg viewBox="0 0 24 24" className="w-4 h-4">

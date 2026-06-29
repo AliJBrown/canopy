@@ -9,7 +9,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-ticketing}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ticketing}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - ./data/postgres:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     healthcheck:
@@ -29,7 +29,7 @@ services:
       - "9000:9000"
       - "9001:9001"
     volumes:
-      - minio_data:/data
+      - ./data/minio:/data
     healthcheck:
       test: ["CMD-SHELL", "wget -q --tries=1 --spider http://127.0.0.1:9000/minio/health/live 2>/dev/null || curl -sf http://127.0.0.1:9000/minio/health/live 2>/dev/null || exit 1"]
       interval: 10s
@@ -83,6 +83,3 @@ services:
     ports:
       - "3000:80"
 
-volumes:
-  postgres_data:
-  minio_data:

@@ -1,0 +1,19 @@
+# Environment
+.env
+
+# Postgres data (bind-mounted host directory)
+data/
+
+# Database backups
+backups/
+
+# Node
+node_modules/
+frontend/node_modules/
+backend/node_modules/
+
+# Build output
+frontend/dist/
+
+# OS
+.DS_Store

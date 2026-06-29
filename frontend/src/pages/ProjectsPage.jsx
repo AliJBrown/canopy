@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Folder, Ticket, Trash2 } from 'lucide-react';
-import { getProjects, createProject, deleteProject } from '../api/projects';
+import { Plus, Folder, Ticket } from 'lucide-react';
+import { getProjects, createProject } from '../api/projects';
 
 export default function ProjectsPage() {
   const nav = useNavigate();
@@ -16,11 +16,6 @@ export default function ProjectsPage() {
   const create = useMutation({
     mutationFn: createProject,
     onSuccess: (p) => { qc.invalidateQueries(['projects']); nav(`/p/${p.key}`); },
-  });
-
-  const remove = useMutation({
-    mutationFn: deleteProject,
-    onSuccess: () => qc.invalidateQueries(['projects']),
   });
 
   const autoKey = (v) => {
@@ -90,10 +85,6 @@ export default function ProjectsPage() {
                   <div className="text-xs text-slate-400 font-mono">{p.key}</div>
                 </div>
               </div>
-              <button onClick={e => { e.stopPropagation(); if (confirm(`Delete "${p.name}"?`)) remove.mutate(p.id); }}
-                className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-300 hover:text-red-400 rounded transition-all">
-                <Trash2 size={14} />
-              </button>
             </div>
             {p.description && <p className="mt-3 text-sm text-slate-500 line-clamp-2">{p.description}</p>}
             <div className="mt-4 flex items-center gap-1.5 text-xs text-slate-400">

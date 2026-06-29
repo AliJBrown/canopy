@@ -1,7 +1,11 @@
 const router = require('express').Router();
 const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const { query } = require('../db');
 const { requireAuth, signToken, getUserSystemPermissions } = require('../middleware/auth');
+
+const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-production';
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:4000';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
@@ -75,19 +79,32 @@ router.get('/google', (req, res) => {
   if (!process.env.GOOGLE_CLIENT_ID) {
     return res.redirect(`${FRONTEND_URL}/login?error=google_not_configured`);
   }
+  // Signed short-lived JWT used as state — verifying it on callback prevents CSRF
+  const state = jwt.sign(
+    { nonce: crypto.randomBytes(16).toString('hex') },
+    JWT_SECRET,
+    { expiresIn: '10m' }
+  );
   const params = new URLSearchParams({
     client_id: process.env.GOOGLE_CLIENT_ID,
     redirect_uri: `${BACKEND_URL}/api/auth/google/callback`,
     response_type: 'code',
     scope: 'openid email profile',
     access_type: 'online',
+    state,
   });
   res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
 });
 
 router.get('/google/callback', async (req, res) => {
-  const { code, error } = req.query;
+  const { code, error, state } = req.query;
   if (error) return res.redirect(`${FRONTEND_URL}/login?error=${encodeURIComponent(error)}`);
+
+  try {
+    jwt.verify(state, JWT_SECRET);
+  } catch {
+    return res.redirect(`${FRONTEND_URL}/login?error=oauth_error`);
+  }
 
   try {
     const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
@@ -127,7 +144,7 @@ router.get('/google/callback', async (req, res) => {
     if (!user.is_active) return res.redirect(`${FRONTEND_URL}/login?error=account_disabled`);
 
     const token = signToken(user);
-    res.redirect(`${FRONTEND_URL}/auth/callback?token=${encodeURIComponent(token)}`);
+    res.redirect(`${FRONTEND_URL}/auth/callback#token=${encodeURIComponent(token)}`);
   } catch (err) {
     console.error('Google OAuth error:', err);
     res.redirect(`${FRONTEND_URL}/login?error=oauth_error`);

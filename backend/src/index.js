@@ -4,7 +4,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const bcrypt = require('bcryptjs');
-const { initDb, query } = require('./db');
+const { runMigrations, query } = require('./db');
 const { startNotificationService } = require('./services/notifications');
 
 const app = express();
@@ -118,7 +118,7 @@ async function start() {
   let retries = 10;
   while (retries > 0) {
     try {
-      await initDb();
+      await runMigrations();
       break;
     } catch (err) {
       retries--;

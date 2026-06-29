@@ -9,6 +9,7 @@ A self-hosted project management and ticketing system. Supports multiple project
 - [Quick Start](#quick-start)
 - [Architecture](#architecture)
 - [Configuration](#configuration)
+- [Database](#database)
 - [Features](#features)
 - [API Reference](#api-reference)
 - [Roles & Permissions](#roles--permissions)
@@ -74,6 +75,102 @@ All configuration is via environment variables. Copy `.env` and edit before depl
 | `MINIO_ROOT_PASSWORD` | yes | MinIO admin password — change in production |
 | `MINIO_BUCKET` | yes | Bucket name for attachments |
 | `MINIO_PUBLIC_URL` | yes | Public URL of the MinIO API port |
+
+### Google OAuth setup
+
+Google sign-in is optional. When `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are set, a "Sign in with Google" button appears on the login page. Users must already exist in the system — sign-in matches by Google account email.
+
+**1. Create OAuth credentials in Google Cloud Console**
+
+- Go to **APIs & Services → OAuth consent screen** and complete the setup (Internal or External)
+- Go to **APIs & Services → Credentials → Create Credentials → OAuth client ID**
+- Application type: **Web application**
+- Add your backend callback URL under **Authorized redirect URIs**:
+  ```
+  http://localhost:4000/api/auth/google/callback
+  ```
+  For production, add your real backend URL:
+  ```
+  https://api.yourdomain.com/api/auth/google/callback
+  ```
+
+**2. Add the credentials to `.env`**
+
+```
+GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=GOCSPX-your-secret
+```
+
+**3. Rebuild**
+
+```bash
+docker compose up --build
+```
+
+The button appears automatically — no other changes needed.
+
+---
+
+## Database
+
+### Data persistence
+
+Postgres and MinIO data are stored in `./data/` on the host machine (bind-mounted into the containers). This directory is excluded from git.
+
+- `docker compose down` — stops containers, data is preserved
+- `docker compose down -v` — same; `-v` has nothing left to delete and is safe to run
+
+### Backup
+
+Dump the live database to a compressed file in `./backups/`:
+
+```bash
+./scripts/backup.sh
+# → backups/canopy_20240615_143022.sql.gz
+```
+
+Run this before upgrades, or schedule it via cron for automated backups.
+
+### Restore
+
+```bash
+./scripts/restore.sh backups/canopy_20240615_143022.sql.gz
+```
+
+The script drops and recreates the database, then loads the dump. You have 5 seconds to cancel with `Ctrl+C` before it proceeds. The containers must be running.
+
+### Schema changes (migrations)
+
+The schema is versioned as numbered SQL files in `backend/src/migrations/`. On every startup the backend applies any files not yet recorded in the `schema_migrations` table, in order.
+
+**To make a schema change:**
+
+1. Create a new file in `backend/src/migrations/` with the next number:
+   ```
+   backend/src/migrations/002_add_reactions.sql
+   ```
+
+2. Write the change using standard SQL. Keep it idempotent where possible (`IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`):
+   ```sql
+   CREATE TABLE IF NOT EXISTS ticket_reactions (
+     ticket_id UUID NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+     user_id   UUID NOT NULL REFERENCES users(id)   ON DELETE CASCADE,
+     emoji     VARCHAR(10) NOT NULL,
+     PRIMARY KEY (ticket_id, user_id, emoji)
+   );
+   ```
+
+3. Restart the backend — the migration runs automatically:
+   ```bash
+   docker compose restart backend
+   # or for a full rebuild:
+   docker compose up --build
+   ```
+
+**Rules:**
+- Never edit a migration file that has already been applied — the runner skips it by filename and your change will not run.
+- Each migration runs inside a transaction. If it fails, it rolls back cleanly and the backend exits with an error so you can fix the SQL before retrying.
+- Number files with a zero-padded prefix (`001_`, `002_`, …) so they sort correctly.
 
 ---
 

@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { AppProvider, useApp } from './context/AppContext';
 import Layout from './components/Layout';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -15,14 +15,14 @@ import AdminPage from './pages/AdminPage';
 
 function AuthCallback() {
   const navigate = useNavigate();
-  const [params] = useSearchParams();
   const { login } = useApp();
 
   useEffect(() => {
-    const token = params.get('token');
+    const fragment = new URLSearchParams(window.location.hash.slice(1));
+    const token = fragment.get('token');
     if (token) {
-      // Fetch user info then redirect
       import('./api/auth').then(({ getMe }) => {
+        // Must be in localStorage before getMe() so the axios interceptor sends it
         localStorage.setItem('auth_token', token);
         getMe().then(user => {
           login(token, user);
