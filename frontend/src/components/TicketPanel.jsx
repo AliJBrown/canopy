@@ -1,8 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { X, Trash2, Plus, ExternalLink, ChevronRight, Pencil, Paperclip, Download, Image, FileText, AlertCircle } from 'lucide-react';
 import { getTicket, updateTicket, deleteTicket, createTicket, getTickets } from '../api/tickets';
+import { getDependencies, addDependency, removeDependency } from '../api/dependencies';
 import { getComments, createComment, deleteComment } from '../api/comments';
+import { getActivity } from '../api/activity';
 import { getAttachments, uploadAttachment, deleteAttachment } from '../api/attachments';
 import { getSprints } from '../api/sprints';
 import { getLabels, createLabel, updateLabel, deleteLabel } from '../api/labels';
@@ -514,7 +517,134 @@ function AttachmentsSection({ ticketId, canWrite }) {
   );
 }
 
+const DEP_LABELS = {
+  blocking:   { label: 'Blocks',      empty: 'Not blocking any tickets' },
+  blocked_by: { label: 'Blocked by',  empty: 'No blockers' },
+  relates_to: { label: 'Related',     empty: 'No related tickets' },
+};
+const DEP_TYPE_MAP = { blocking: 'blocks', blocked_by: 'blocks', relates_to: 'relates_to' };
+
+function DependenciesSection({ ticketId, projectId, canWrite, onTicketClick }) {
+  const qc = useQueryClient();
+  const [addingType, setAddingType] = useState(null);
+  const [search, setSearch] = useState('');
+
+  const { data: deps } = useQuery({
+    queryKey: ['dependencies', ticketId],
+    queryFn: () => getDependencies(ticketId),
+    enabled: !!ticketId,
+  });
+
+  const { data: searchResults } = useQuery({
+    queryKey: ['tickets', 'dep-search', projectId, search],
+    queryFn: () => getTickets({ projectId, search, limit: 8 }),
+    enabled: !!search && search.length >= 2,
+  });
+
+  const addMut = useMutation({
+    mutationFn: ({ dependency_id, type }) => addDependency(ticketId, dependency_id, type),
+    onSuccess: () => {
+      qc.invalidateQueries(['dependencies', ticketId]);
+      setAddingType(null);
+      setSearch('');
+    },
+  });
+
+  const removeMut = useMutation({
+    mutationFn: (depId) => removeDependency(ticketId, depId),
+    onSuccess: () => qc.invalidateQueries(['dependencies', ticketId]),
+  });
+
+  const allDeps = [
+    ...(deps?.blocking   || []).map(t => ({ ...t, _group: 'blocking' })),
+    ...(deps?.blocked_by || []).map(t => ({ ...t, _group: 'blocked_by' })),
+    ...(deps?.relates_to || []).map(t => ({ ...t, _group: 'relates_to' })),
+  ];
+  const hasDeps = allDeps.length > 0;
+
+  if (!hasDeps && !canWrite) return null;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Dependencies</div>
+        {canWrite && (
+          <div className="flex items-center gap-1">
+            {['blocking', 'blocked_by', 'relates_to'].map(t => (
+              <button key={t} onClick={() => { setAddingType(t); setSearch(''); }}
+                className="text-[10px] text-indigo-600 hover:text-indigo-500 border border-indigo-200 hover:bg-indigo-50 px-1.5 py-0.5 rounded font-medium">
+                + {DEP_LABELS[t].label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Typeahead search to add dependency */}
+      {addingType && (
+        <div className="mb-2 relative">
+          <input
+            autoFocus
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder={`Search tickets to add as "${DEP_LABELS[addingType].label}"…`}
+            className="w-full text-sm border border-indigo-300 rounded-lg px-3 py-1.5 outline-none focus:ring-1 focus:ring-indigo-300"
+          />
+          {searchResults?.tickets?.length > 0 && (
+            <div className="absolute top-full left-0 right-0 z-20 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+              {searchResults.tickets.filter(t => t.id !== ticketId).map(t => (
+                <button key={t.id}
+                  onClick={() => addMut.mutate({ dependency_id: t.id, type: DEP_TYPE_MAP[addingType] })}
+                  className="w-full text-left px-3 py-2 hover:bg-indigo-50 flex items-center gap-2 text-sm">
+                  <span className="text-[11px] font-mono text-slate-400">{t.ticket_key}</span>
+                  <span className="text-slate-700 truncate">{t.title}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          <button onClick={() => { setAddingType(null); setSearch(''); }}
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+            <X size={12} />
+          </button>
+        </div>
+      )}
+
+      {/* Grouped dependency list */}
+      {(['blocking', 'blocked_by', 'relates_to']).map(group => {
+        const items = deps?.[group] || [];
+        if (!items.length) return null;
+        return (
+          <div key={group} className="mb-2">
+            <div className="text-[10px] font-semibold text-slate-400 uppercase mb-1">{DEP_LABELS[group].label}</div>
+            <div className="space-y-1">
+              {items.map(t => (
+                <div key={t.id} className="flex items-center gap-2 py-1 px-2 bg-slate-50 rounded-lg group/dep">
+                  <span className="text-[11px] font-mono text-slate-400">{t.ticket_key}</span>
+                  <button onClick={() => onTicketClick(t.id)}
+                    className="text-sm text-slate-700 hover:text-indigo-600 truncate flex-1 text-left">
+                    {t.title}
+                  </button>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+                    t.status === 'done' ? 'bg-green-100 text-green-700' : 'bg-slate-200 text-slate-500'
+                  }`}>{t.status}</span>
+                  {canWrite && (
+                    <button onClick={() => removeMut.mutate(t.dep_id)}
+                      className="opacity-0 group-hover/dep:opacity-100 text-slate-300 hover:text-red-400 transition-opacity">
+                      <X size={12} />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function TicketPanel({ ticketId, projectId, projectRole, onClose, onTicketChange, statuses = [] }) {
+  const navigate = useNavigate();
   const qc = useQueryClient();
   const { user } = useApp();
   const { canWrite, canDelete, canManageProject } = useProjectPermissions({ id: projectId, my_role: projectRole });
@@ -535,9 +665,17 @@ export default function TicketPanel({ ticketId, projectId, projectRole, onClose,
     enabled: !!ticketId,
   });
 
+  const [activityFilter, setActivityFilter] = useState('all'); // 'all' | 'comments'
+
   const { data: comments = [] } = useQuery({
     queryKey: ['comments', ticketId],
     queryFn: () => getComments(ticketId),
+    enabled: !!ticketId,
+  });
+
+  const { data: activityEvents = [] } = useQuery({
+    queryKey: ['activity', ticketId],
+    queryFn: () => getActivity(ticketId),
     enabled: !!ticketId,
   });
 
@@ -597,12 +735,12 @@ export default function TicketPanel({ ticketId, projectId, projectRole, onClose,
 
   const addComment = useMutation({
     mutationFn: () => createComment({ ticket_id: ticketId, author_id: user?.id, body: commentBody }),
-    onSuccess: () => { qc.invalidateQueries(['comments', ticketId]); setCommentBody(''); },
+    onSuccess: () => { qc.invalidateQueries(['comments', ticketId]); qc.invalidateQueries(['activity', ticketId]); setCommentBody(''); },
   });
 
   const removeComment = useMutation({
     mutationFn: (id) => deleteComment(id),
-    onSuccess: () => qc.invalidateQueries(['comments', ticketId]),
+    onSuccess: () => { qc.invalidateQueries(['comments', ticketId]); qc.invalidateQueries(['activity', ticketId]); },
   });
 
   useEffect(() => {
@@ -634,17 +772,28 @@ export default function TicketPanel({ ticketId, projectId, projectRole, onClose,
           <>
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-3 border-b border-slate-100 flex-shrink-0">
-              <div className="flex items-center gap-2 text-sm text-slate-500">
+              <div className="flex items-center gap-1.5 text-sm text-slate-500 min-w-0">
+                <button
+                  onClick={() => { navigate(`/p/${ticket.project_key}/board`); onClose(); }}
+                  className="font-mono text-xs text-slate-400 hover:text-indigo-600 transition-colors flex-shrink-0"
+                >
+                  {ticket.project_key}
+                </button>
+                <ChevronRight size={11} className="text-slate-300 flex-shrink-0" />
                 {ticket.parent && (
                   <>
-                    <TypeBadge type={ticket.parent.type} />
-                    <span className="font-mono text-xs">{ticket.parent.ticket_key}</span>
-                    <span className="truncate max-w-[140px]">{ticket.parent.title}</span>
-                    <ChevronRight size={13} />
+                    <button
+                      onClick={() => onTicketChange?.(ticket.parent.id)}
+                      className="flex items-center gap-1 hover:text-indigo-600 transition-colors flex-shrink-0"
+                    >
+                      <TypeBadge type={ticket.parent.type} />
+                      <span className="font-mono text-xs">{ticket.parent.ticket_key}</span>
+                    </button>
+                    <ChevronRight size={11} className="text-slate-300 flex-shrink-0" />
                   </>
                 )}
                 <TypeBadge type={ticket.type} />
-                <span className="font-mono font-semibold text-slate-700">{ticket.ticket_key}</span>
+                <span className="font-mono font-semibold text-slate-700 flex-shrink-0">{ticket.ticket_key}</span>
               </div>
               <div className="flex items-center gap-1">
                 {!canWrite && (
@@ -705,6 +854,14 @@ export default function TicketPanel({ ticketId, projectId, projectRole, onClose,
                     </div>
                   )}
                 </div>
+
+                {/* Dependencies */}
+                <DependenciesSection
+                  ticketId={ticketId}
+                  projectId={projectId}
+                  canWrite={canWrite}
+                  onTicketClick={onTicketChange}
+                />
 
                 {/* Sub-tasks — always shown for epics, shown for others if children exist */}
                 {(ticket.type === 'epic' || ticket.children?.length > 0) && (
@@ -796,31 +953,94 @@ export default function TicketPanel({ ticketId, projectId, projectRole, onClose,
                 {/* Attachments */}
                 <AttachmentsSection ticketId={ticketId} canWrite={canWrite} />
 
-                {/* Comments */}
+                {/* Activity & Comments */}
                 <div>
-                  <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
-                    Comments {comments.length > 0 && `(${comments.length})`}
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Activity</div>
+                    <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-0.5">
+                      {[['all', 'All'], ['comments', 'Comments']].map(([val, label]) => (
+                        <button key={val} onClick={() => setActivityFilter(val)}
+                          className={`text-[10px] font-medium px-2 py-0.5 rounded-md transition-colors ${
+                            activityFilter === val ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'
+                          }`}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
+
                   <div className="space-y-3 mb-4">
-                    {comments.map(c => (
-                      <div key={c.id} className="flex gap-3 group">
-                        <Avatar user={c.author} size="sm" />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-baseline gap-2 mb-1">
-                            <span className="text-xs font-semibold text-slate-700">{c.author?.name || 'Unknown'}</span>
-                            <span className="text-[11px] text-slate-400">{new Date(c.created_at).toLocaleString()}</span>
-                            {canWrite && (
-                              <button onClick={() => removeComment.mutate(c.id)}
-                                className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-400 ml-auto transition-opacity">
-                                <Trash2 size={11} />
-                              </button>
-                            )}
+                    {(() => {
+                      // Build merged, sorted feed
+                      const commentMap = Object.fromEntries(comments.map(c => [c.id, c]));
+                      const feedItems = activityFilter === 'comments'
+                        ? comments.map(c => ({ _type: 'comment', _ts: c.created_at, ...c }))
+                        : [
+                            ...comments.map(c => ({ _type: 'comment', _ts: c.created_at, ...c })),
+                            ...activityEvents.filter(e => e.action !== 'commented').map(e => ({ _type: 'event', _ts: e.created_at, ...e })),
+                          ].sort((a, b) => new Date(a._ts) - new Date(b._ts));
+
+                      if (!feedItems.length) return <p className="text-xs text-slate-400 italic">No activity yet</p>;
+
+                      const FIELD_LABELS = {
+                        status: 'status', priority: 'priority', assignee_id: 'assignee',
+                        sprint_id: 'sprint', title: 'title', story_points: 'story points',
+                        estimate_hours: 'estimate', due_date: 'due date', type: 'type',
+                      };
+
+                      return feedItems.map(item => {
+                        if (item._type === 'comment') {
+                          return (
+                            <div key={`c-${item.id}`} className="flex gap-3 group">
+                              <Avatar user={item.author} size="sm" />
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-baseline gap-2 mb-1">
+                                  <span className="text-xs font-semibold text-slate-700">{item.author?.name || 'Unknown'}</span>
+                                  <span className="text-[11px] text-slate-400">{new Date(item.created_at).toLocaleString()}</span>
+                                  {canWrite && (
+                                    <button onClick={() => removeComment.mutate(item.id)}
+                                      className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-400 ml-auto transition-opacity">
+                                      <Trash2 size={11} />
+                                    </button>
+                                  )}
+                                </div>
+                                <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">{renderCommentBody(item.body)}</p>
+                              </div>
+                            </div>
+                          );
+                        }
+                        // Change event
+                        const fieldLabel = FIELD_LABELS[item.field] || item.field;
+                        const actorName = item.actor?.name || 'Someone';
+                        let eventText;
+                        if (item.action === 'created') {
+                          eventText = 'created this ticket';
+                        } else if (item.field) {
+                          eventText = `changed ${fieldLabel}`;
+                          if (item.old_value || item.new_value) {
+                            eventText += ` from "${item.old_value ?? '—'}" → "${item.new_value ?? '—'}"`;
+                          }
+                        } else {
+                          eventText = item.action;
+                        }
+                        return (
+                          <div key={`e-${item.id}`} className="flex items-start gap-2 text-[11px] text-slate-500">
+                            <div className="w-5 h-5 flex-shrink-0 flex items-center justify-center">
+                              {item.actor ? (
+                                <Avatar user={item.actor} size="sm" />
+                              ) : (
+                                <span className="w-1.5 h-1.5 rounded-full bg-slate-300 mt-1.5" />
+                              )}
+                            </div>
+                            <div className="pt-0.5">
+                              <span className="font-medium text-slate-600">{actorName}</span>
+                              {' '}{eventText}
+                              <span className="ml-1.5 text-slate-400">{new Date(item.created_at).toLocaleString()}</span>
+                            </div>
                           </div>
-                          <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">{renderCommentBody(c.body)}</p>
-                        </div>
-                      </div>
-                    ))}
-                    {comments.length === 0 && <p className="text-xs text-slate-400 italic">No comments yet</p>}
+                        );
+                      });
+                    })()}
                   </div>
 
                   {canWrite && (

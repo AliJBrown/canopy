@@ -4,9 +4,95 @@ const { requireAuth, checkSystemPermission } = require('../middleware/auth');
 
 router.use(requireAuth);
 
+// Compute progress and auto_status for a single tree node.
+// Children must already have their own progress computed before calling this.
+// Priority: directly linked tickets > sub-goal rollup > manual target/current.
+function computeNodeProgress(node) {
+  const linked = parseInt(node.linked_count) || 0;
+  const done   = parseInt(node.completed_count) || 0;
+
+  if (node.status === 'completed') {
+    node.progress = 100;
+  } else if (linked > 0) {
+    node.progress = (done / linked) * 100;
+  } else if (node.children.length > 0) {
+    const totalW = node.children.reduce((s, c) => s + parseFloat(c.weight || 1), 0);
+    node.progress = totalW > 0
+      ? node.children.reduce((s, c) => s + c.progress * parseFloat(c.weight || 1), 0) / totalW
+      : 0;
+  } else {
+    const target = parseFloat(node.target_value) || 0;
+    node.progress = target > 0
+      ? Math.min((parseFloat(node.current_value || 0) / target) * 100, 100)
+      : 0;
+  }
+  node.progress = Math.min(Math.max(Math.round(node.progress * 10) / 10, 0), 100);
+
+  if (node.progress >= 100 || node.status === 'completed') {
+    node.auto_status = 'completed';
+  } else if (node.status === 'cancelled') {
+    node.auto_status = 'cancelled';
+  } else if (node.status !== 'not_started') {
+    // User explicitly set on_track / at_risk / behind — respect it as-is
+    node.auto_status = node.status;
+  } else {
+    // Default 'not_started' state — derive from progress and dates
+    const now   = new Date();
+    const start = node.start_date ? new Date(node.start_date) : null;
+    const due   = node.due_date   ? new Date(node.due_date)   : null;
+    if (start && now < start) {
+      node.auto_status = 'not_started';
+    } else if (due) {
+      const total   = Math.max(due - (start || now), 1);
+      const elapsed = Math.max(0, now - (start || now));
+      const gap     = Math.min((elapsed / total) * 100, 100) - node.progress;
+      node.auto_status = gap <= 10 ? 'on_track' : gap <= 25 ? 'at_risk' : 'behind';
+    } else {
+      // No dates — stay 'not_started' until progress has been made
+      node.auto_status = node.progress > 0 ? 'on_track' : 'not_started';
+    }
+  }
+
+  // Only bubble up genuinely alarming child statuses.
+  // 'not_started' children are normal — they should not escalate the parent.
+  if (node.children.length > 0 && node.auto_status !== 'cancelled' && node.auto_status !== 'completed') {
+    for (const child of node.children) {
+      if (child.auto_status === 'cancelled') continue;
+      if (child.auto_status === 'behind' && node.auto_status !== 'behind') {
+        node.auto_status = 'behind';
+      } else if (child.auto_status === 'at_risk' && node.auto_status !== 'behind' && node.auto_status !== 'at_risk') {
+        node.auto_status = 'at_risk';
+      }
+    }
+  }
+}
+
+// Returns the set of private goal IDs the given user has direct access to.
+async function getPrivateAccessSet(userId) {
+  const { rows } = await query(`
+    SELECT id FROM project_goals WHERE is_private = true AND owner_id = $1
+    UNION
+    SELECT goal_id AS id FROM goal_members WHERE user_id = $1
+  `, [userId]);
+  return new Set(rows.map(r => r.id));
+}
+
+// Filter a tree of nodes based on privacy. A private node is removed (with its
+// entire subtree) unless the user has direct access or a sealed parent does.
+function filterPrivate(nodes, accessSet, sealedByParent = false) {
+  return nodes.filter(node => {
+    if (node.is_private && !sealedByParent && !accessSet.has(node.id)) {
+      return false; // blocked — remove node and its entire subtree
+    }
+    const sealed = sealedByParent || (node.is_private && accessSet.has(node.id));
+    node.children = filterPrivate(node.children, accessSet, sealed);
+    return true;
+  });
+}
+
 // Recursive CTE — fetch all goals in the org tree regardless of project_id
 // Roots are goals where project_id IS NULL AND parent_id IS NULL
-async function computeOrgTree() {
+async function computeOrgTree(userId, bypassPrivacy) {
   const { rows: goals } = await query(`
     WITH RECURSIVE tree AS (
       SELECT g.id FROM project_goals g
@@ -45,76 +131,21 @@ async function computeOrgTree() {
 
   function computeProgress(node) {
     node.children.forEach(computeProgress);
-    if (node.children.length > 0) {
-      if (node.metric_type === 'subgoals') {
-        const completedChildren = node.children.filter(c => c.auto_status === 'completed').length;
-        node.progress = (completedChildren / node.children.length) * 100;
-      } else {
-        const totalW = node.children.reduce((s, c) => s + parseFloat(c.weight || 1), 0);
-        node.progress = totalW > 0
-          ? node.children.reduce((s, c) => s + c.progress * parseFloat(c.weight || 1), 0) / totalW
-          : 0;
-      }
-    } else {
-      const linked = parseInt(node.linked_count) || 0;
-      const done = parseInt(node.completed_count) || 0;
-      const target = parseFloat(node.target_value) || 0;
-      if (node.metric_type === 'subgoals' || linked > 0) {
-        node.progress = linked > 0 ? (done / linked) * 100 : 0;
-      } else if (target > 0) {
-        node.progress = Math.min((parseFloat(node.current_value || 0) / target) * 100, 100);
-      } else {
-        node.progress = 0;
-      }
-    }
-    node.progress = Math.min(Math.max(Math.round(node.progress * 10) / 10, 0), 100);
-
-    if (node.progress >= 100 || node.status === 'completed') {
-      node.auto_status = 'completed';
-    } else if (node.status === 'cancelled') {
-      node.auto_status = 'cancelled';
-    } else if (node.status === 'at_risk' || node.status === 'behind') {
-      node.auto_status = node.status;
-    } else {
-      const now = new Date();
-      const start = node.start_date ? new Date(node.start_date) : null;
-      const due   = node.due_date   ? new Date(node.due_date)   : null;
-      if (start && now < start) {
-        node.auto_status = 'not_started';
-      } else if (due) {
-        const total = Math.max(due - (start || now), 1);
-        const elapsed = Math.max(0, now - (start || now));
-        const gap = Math.min((elapsed / total) * 100, 100) - node.progress;
-        node.auto_status = gap <= 10 ? 'on_track' : gap <= 25 ? 'at_risk' : 'behind';
-      } else {
-        node.auto_status = node.progress > 0 ? 'on_track' : 'not_started';
-      }
-    }
-
-    // Bubble worst child status up so problems are always visible on the parent
-    if (node.children.length > 0 && node.auto_status !== 'cancelled' && node.auto_status !== 'completed') {
-      const CHILD_SEVERITY = { completed: 0, on_track: 0, not_started: 1, at_risk: 1, behind: 2 };
-      const nodeSev = CHILD_SEVERITY[node.auto_status] ?? 0;
-      let worstSev = nodeSev;
-      for (const child of node.children) {
-        if (child.auto_status === 'cancelled') continue;
-        const s = CHILD_SEVERITY[child.auto_status] ?? 0;
-        if (s > worstSev) worstSev = s;
-      }
-      if (worstSev > nodeSev) {
-        node.auto_status = worstSev >= 2 ? 'behind' : 'at_risk';
-      }
-    }
+    computeNodeProgress(node);
   }
-
   roots.forEach(computeProgress);
-  return roots;
+
+  if (bypassPrivacy) return roots;
+
+  const accessSet = await getPrivateAccessSet(userId);
+  return filterPrivate(roots, accessSet);
 }
 
 // GET / — full org goal tree
 router.get('/', async (req, res, next) => {
   try {
-    res.json(await computeOrgTree());
+    const bypass = req.user.role === 'admin' || await checkSystemPermission(req.user, 'org_goals.write');
+    res.json(await computeOrgTree(req.user.id, bypass));
   } catch (err) { next(err); }
 });
 
@@ -143,7 +174,53 @@ router.post('/', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// GET /:id — single goal with direct children and linked tickets
+// Fetch the full subtree rooted at goalId and compute progress recursively.
+// Returns the root node with .children[] fully computed, or null if not found.
+async function computeGoalSubtree(goalId) {
+  const { rows: flat } = await query(`
+    WITH RECURSIVE sub AS (
+      SELECT g.id FROM project_goals g WHERE g.id = $1
+      UNION ALL
+      SELECT g.id FROM project_goals g JOIN sub s ON g.parent_id = s.id
+    )
+    SELECT
+      g.*,
+      CASE WHEN u.id IS NOT NULL
+        THEN json_build_object('id', u.id, 'name', u.name, 'color', u.color, 'avatar_url', u.avatar_url)
+        ELSE NULL END AS owner,
+      CASE WHEN p.id IS NOT NULL
+        THEN json_build_object('id', p.id, 'name', p.name, 'key', p.key)
+        ELSE NULL END AS project,
+      COUNT(DISTINCT tgl.ticket_id)::int AS linked_count,
+      COUNT(DISTINCT tgl.ticket_id) FILTER (WHERE tk.status = 'done')::int AS completed_count
+    FROM sub
+    JOIN project_goals g ON g.id = sub.id
+    LEFT JOIN users u ON u.id = g.owner_id
+    LEFT JOIN projects p ON p.id = g.project_id
+    LEFT JOIN ticket_goal_links tgl ON tgl.goal_id = g.id
+    LEFT JOIN tickets tk ON tk.id = tgl.ticket_id
+    GROUP BY g.id, u.id, u.name, u.color, u.avatar_url, p.id, p.name, p.key
+    ORDER BY g.position, g.created_at
+  `, [goalId]);
+
+  if (flat.length === 0) return null;
+
+  const byId = {};
+  flat.forEach(g => { byId[g.id] = { ...g, children: [] }; });
+  flat.forEach(g => {
+    if (g.parent_id && byId[g.parent_id]) byId[g.parent_id].children.push(byId[g.id]);
+  });
+
+  function recurse(node) {
+    node.children.forEach(recurse);
+    computeNodeProgress(node);
+  }
+  recurse(byId[goalId]);
+
+  return byId[goalId];
+}
+
+// GET /:id — single goal with direct children, linked tickets, and ancestor breadcrumb chain
 router.get('/:id', async (req, res, next) => {
   try {
     const { rows: [goal] } = await query(`
@@ -161,26 +238,43 @@ router.get('/:id', async (req, res, next) => {
     `, [req.params.id]);
     if (!goal) return res.status(404).json({ error: 'Not found' });
 
-    // Direct children (with project info)
-    const { rows: children } = await query(`
-      SELECT g.*,
-        CASE WHEN u.id IS NOT NULL
-          THEN json_build_object('id', u.id, 'name', u.name, 'color', u.color, 'avatar_url', u.avatar_url)
-          ELSE NULL END AS owner,
-        CASE WHEN p.id IS NOT NULL
-          THEN json_build_object('id', p.id, 'name', p.name, 'key', p.key)
-          ELSE NULL END AS project,
-        COUNT(DISTINCT tgl.ticket_id)::int AS linked_count,
-        COUNT(DISTINCT tgl.ticket_id) FILTER (WHERE tk.status = 'done')::int AS completed_count
-      FROM project_goals g
-      LEFT JOIN users u ON u.id = g.owner_id
-      LEFT JOIN projects p ON p.id = g.project_id
-      LEFT JOIN ticket_goal_links tgl ON tgl.goal_id = g.id
-      LEFT JOIN tickets tk ON tk.id = tgl.ticket_id
-      WHERE g.parent_id = $1
-      GROUP BY g.id, u.id, u.name, u.color, u.avatar_url, p.id, p.name, p.key
-      ORDER BY g.position, g.created_at
+    // Privacy check: admins and org_goals.write users bypass; others need access to
+    // every private node in the ancestor chain (including this goal itself).
+    const bypass = req.user.role === 'admin' || await checkSystemPermission(req.user, 'org_goals.write');
+    if (!bypass) {
+      const accessSet = await getPrivateAccessSet(req.user.id);
+      const { rows: blockedAncestors } = await query(`
+        WITH RECURSIVE chain AS (
+          SELECT id, parent_id, is_private
+          FROM project_goals WHERE id = $1
+          UNION ALL
+          SELECT g.id, g.parent_id, g.is_private
+          FROM project_goals g JOIN chain c ON g.id = c.parent_id
+        )
+        SELECT id FROM chain WHERE is_private = true
+      `, [req.params.id]);
+      const blocked = blockedAncestors.some(r => !accessSet.has(r.id));
+      if (blocked) return res.status(403).json({ error: 'This goal is private' });
+    }
+
+    // Ancestor chain for breadcrumb (root → direct parent order)
+    const { rows: ancestors } = await query(`
+      WITH RECURSIVE anc AS (
+        SELECT id, parent_id, title, 0 AS depth
+        FROM project_goals
+        WHERE id = (SELECT parent_id FROM project_goals WHERE id = $1)
+        UNION ALL
+        SELECT g.id, g.parent_id, g.title, a.depth + 1
+        FROM project_goals g
+        JOIN anc a ON g.id = a.parent_id
+        WHERE a.parent_id IS NOT NULL
+      )
+      SELECT id, title FROM anc ORDER BY depth DESC
     `, [req.params.id]);
+
+    // Fetch the full subtree to compute progress recursively (tickets > sub-goals > target)
+    const subtree = await computeGoalSubtree(req.params.id);
+    const children = subtree ? subtree.children : [];
 
     // Linked tickets
     const { rows: tickets } = await query(`
@@ -196,7 +290,17 @@ router.get('/:id', async (req, res, next) => {
       ORDER BY t.created_at DESC
     `, [req.params.id]);
 
-    res.json({ ...goal, children, tickets });
+    res.json({
+      ...goal,
+      // Merge computed values from the recursive subtree calculation
+      progress:        subtree?.progress        ?? 0,
+      auto_status:     subtree?.auto_status     ?? null,
+      linked_count:    subtree?.linked_count    ?? 0,
+      completed_count: subtree?.completed_count ?? 0,
+      ancestors,
+      children,
+      tickets,
+    });
   } catch (err) { next(err); }
 });
 
@@ -291,7 +395,7 @@ router.patch('/:id', async (req, res, next) => {
 
     const allowed = ['title','description','goal_type','metric_type','target_value',
                      'current_value','unit','weight','status','owner_id',
-                     'start_date','due_date','parent_id','position','project_id'];
+                     'start_date','due_date','parent_id','position','project_id','is_private'];
     const nullableEmpty = new Set(['owner_id', 'parent_id', 'project_id', 'start_date', 'due_date', 'target_value', 'current_value']);
     const updates = [];
     const params = [];
@@ -309,6 +413,48 @@ router.patch('/:id', async (req, res, next) => {
       params
     );
     res.json(rows[0]);
+  } catch (err) { next(err); }
+});
+
+// GET /:id/members — list users with explicit access to a private goal
+router.get('/:id/members', async (req, res, next) => {
+  try {
+    const { rows } = await query(`
+      SELECT u.id, u.name, u.email, u.color, u.avatar_url
+      FROM goal_members gm
+      JOIN users u ON u.id = gm.user_id
+      WHERE gm.goal_id = $1
+      ORDER BY u.name
+    `, [req.params.id]);
+    res.json(rows);
+  } catch (err) { next(err); }
+});
+
+// POST /:id/members — grant a user access to a private goal
+router.post('/:id/members', async (req, res, next) => {
+  try {
+    if (!(await checkSystemPermission(req.user, 'org_goals.write')))
+      return res.status(403).json({ error: 'You do not have permission to modify company goals' });
+    const { user_id } = req.body;
+    if (!user_id) return res.status(400).json({ error: 'user_id required' });
+    await query(
+      'INSERT INTO goal_members (goal_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+      [req.params.id, user_id]
+    );
+    res.status(201).json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// DELETE /:id/members/:userId — remove a user's access
+router.delete('/:id/members/:userId', async (req, res, next) => {
+  try {
+    if (!(await checkSystemPermission(req.user, 'org_goals.write')))
+      return res.status(403).json({ error: 'You do not have permission to modify company goals' });
+    await query(
+      'DELETE FROM goal_members WHERE goal_id = $1 AND user_id = $2',
+      [req.params.id, req.params.userId]
+    );
+    res.status(204).send();
   } catch (err) { next(err); }
 });
 

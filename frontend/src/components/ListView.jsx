@@ -2,9 +2,9 @@ import React, { useState, useMemo } from 'react';
 import { ChevronRight, ChevronDown, Plus } from 'lucide-react';
 import { TypeBadge, PriorityBadge, StatusBadge, Avatar } from './Badge';
 
-function TicketRow({ ticket, depth = 0, onTicketClick, onStatusChange, onAddChild, allTickets }) {
+function TicketRow({ ticket, depth = 0, onTicketClick, onStatusChange, onAddChild, allTickets, collapsed, onToggle }) {
   const children = allTickets.filter(t => t.parent_id === ticket.id);
-  const [open, setOpen] = useState(true);
+  const isOpen = !collapsed.has(ticket.id);
 
   return (
     <>
@@ -13,9 +13,9 @@ function TicketRow({ ticket, depth = 0, onTicketClick, onStatusChange, onAddChil
         <td className="py-2 px-4">
           <div className="flex items-center gap-1" style={{ paddingLeft: `${depth * 20}px` }}>
             {children.length > 0 ? (
-              <button onClick={e => { e.stopPropagation(); setOpen(o => !o); }}
+              <button onClick={e => { e.stopPropagation(); onToggle(ticket.id); }}
                 className="w-4 h-4 flex items-center justify-center text-slate-400 hover:text-slate-600">
-                {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                {isOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
               </button>
             ) : (
               <span className="w-4" />
@@ -59,7 +59,7 @@ function TicketRow({ ticket, depth = 0, onTicketClick, onStatusChange, onAddChil
           </button>
         </td>
       </tr>
-      {open && children.map(child => (
+      {isOpen && children.map(child => (
         <TicketRow
           key={child.id}
           ticket={child}
@@ -68,6 +68,8 @@ function TicketRow({ ticket, depth = 0, onTicketClick, onStatusChange, onAddChil
           onStatusChange={onStatusChange}
           onAddChild={onAddChild}
           allTickets={allTickets}
+          collapsed={collapsed}
+          onToggle={onToggle}
         />
       ))}
     </>
@@ -76,6 +78,25 @@ function TicketRow({ ticket, depth = 0, onTicketClick, onStatusChange, onAddChil
 
 export default function ListView({ tickets, onTicketClick, onStatusChange, onAddChild }) {
   const roots = useMemo(() => tickets.filter(t => !t.parent_id), [tickets]);
+
+  const parentIds = useMemo(
+    () => new Set(tickets.filter(t => t.parent_id).map(t => t.parent_id)),
+    [tickets]
+  );
+
+  // Empty set = all expanded (default)
+  const [collapsed, setCollapsed] = useState(new Set());
+
+  const toggle = (id) => setCollapsed(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+
+  const expandAll  = () => setCollapsed(new Set());
+  const collapseAll = () => setCollapsed(new Set(parentIds));
+
+  const hasParents = parentIds.size > 0;
 
   if (!tickets.length) {
     return (
@@ -90,7 +111,20 @@ export default function ListView({ tickets, onTicketClick, onStatusChange, onAdd
       <table className="w-full text-left border-collapse">
         <thead className="sticky top-0 bg-white z-10 border-b-2 border-slate-100">
           <tr>
-            <th className="py-2.5 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Title</th>
+            <th className="py-2.5 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+              <div className="flex items-center gap-2">
+                {hasParents && (
+                  <button
+                    onClick={collapsed.size > 0 ? expandAll : collapseAll}
+                    title={collapsed.size > 0 ? 'Expand all' : 'Collapse all'}
+                    className="text-slate-400 hover:text-indigo-600 transition-colors"
+                  >
+                    {collapsed.size > 0 ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+                  </button>
+                )}
+                Title
+              </div>
+            </th>
             <th className="py-2.5 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
             <th className="py-2.5 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Priority</th>
             <th className="py-2.5 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Assignee</th>
@@ -109,6 +143,8 @@ export default function ListView({ tickets, onTicketClick, onStatusChange, onAdd
               onStatusChange={onStatusChange}
               onAddChild={onAddChild}
               allTickets={tickets}
+              collapsed={collapsed}
+              onToggle={toggle}
             />
           ))}
         </tbody>

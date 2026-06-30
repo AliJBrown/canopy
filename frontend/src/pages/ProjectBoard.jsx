@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { LayoutGrid, List, Layers, Plus, Settings, CalendarRange, CheckCircle2 } from 'lucide-react';
 import { getProjects } from '../api/projects';
@@ -59,10 +59,19 @@ function buildQueryParams(projectId, filters, { forBoard = false, offset = 0 } =
 export default function ProjectBoard() {
   const { projectKey, view } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [, setSearchParams] = useSearchParams();
   const qc = useQueryClient();
   const { user } = useApp();
 
-  const [selectedTicketId, setSelectedTicketId] = useState(null);
+  const [selectedTicketId, setSelectedTicketId] = useState(
+    () => new URLSearchParams(location.search).get('ticket') || null
+  );
+
+  useEffect(() => {
+    const id = new URLSearchParams(location.search).get('ticket');
+    if (id) setSelectedTicketId(id);
+  }, [location.search]);
   const [showCreate, setShowCreate] = useState(false);
   const [createDefaults, setCreateDefaults] = useState({});
   const [showSettings, setShowSettings] = useState(false);
@@ -135,6 +144,9 @@ export default function ProjectBoard() {
       return { prev };
     },
     onError: (_, __, ctx) => qc.setQueryData(boardQueryKey, ctx.prev),
+    onSuccess: (data, { onWipWarning }) => {
+      if (data?.wip_warning && onWipWarning) onWipWarning(data.wip_warning);
+    },
     onSettled: () => {
       qc.invalidateQueries(boardQueryKey);
       qc.invalidateQueries(['tickets', 'list', project?.id]);
@@ -280,7 +292,7 @@ export default function ProjectBoard() {
           <Board
             tickets={boardTickets}
             onTicketClick={handleTicketClick}
-            onStatusChange={(id, status) => changeStatus.mutate({ id, status })}
+            onStatusChange={(id, status, onWipWarning) => changeStatus.mutate({ id, status, onWipWarning })}
             onAddClick={canWrite ? (status) => { setCreateDefaults({ status }); setShowCreate(true); } : () => {}}
             statuses={projectStatuses}
           />
@@ -313,10 +325,11 @@ export default function ProjectBoard() {
           projectId={project.id}
           projectRole={myRole}
           statuses={projectStatuses}
-          onClose={() => setSelectedTicketId(null)}
+          onClose={() => { setSelectedTicketId(null); setSearchParams({}, { replace: true }); }}
           onTicketChange={(id) => {
-            if (id) setSelectedTicketId(id);
+            if (id) { setSelectedTicketId(id); setSearchParams({ ticket: id }, { replace: true }); }
             else {
+              setSearchParams({}, { replace: true });
               qc.invalidateQueries(boardQueryKey);
               qc.invalidateQueries(['tickets', 'list', project?.id]);
             }

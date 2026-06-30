@@ -77,6 +77,34 @@ router.post('/', async (req, res, next) => {
       FROM comments c LEFT JOIN users u ON u.id = c.author_id WHERE c.id = $1
     `, [commentId]);
     res.status(201).json(full.rows[0]);
+
+    // Log activity + create mention notifications (non-blocking)
+    setImmediate(async () => {
+      await query(
+        `INSERT INTO ticket_activity (ticket_id, actor_id, action, metadata)
+         VALUES ($1, $2, 'commented', $3)`,
+        [ticket_id, req.user.id, JSON.stringify({ comment_id: commentId, comment_preview: body.slice(0, 120) })]
+      ).catch(() => {});
+
+      // Fetch ticket metadata for notification payload
+      const { rows: [ticketMeta] } = await query(
+        'SELECT t.title, t.number, p.key AS project_key FROM tickets t JOIN projects p ON p.id = t.project_id WHERE t.id = $1',
+        [ticket_id]
+      ).catch(() => ({ rows: [] }));
+
+      for (const userId of mentionIds) {
+        if (userId === req.user.id) continue;
+        await query(
+          `INSERT INTO notifications (user_id, actor_id, type, ticket_id, comment_id, data)
+           VALUES ($1, $2, 'mentioned', $3, $4, $5)`,
+          [userId, req.user.id, ticket_id, commentId, JSON.stringify({
+            ticket_title: ticketMeta?.title,
+            project_key: ticketMeta?.project_key,
+            ticket_number: ticketMeta?.number,
+          })]
+        ).catch(() => {});
+      }
+    });
   } catch (err) { next(err); }
 });
 

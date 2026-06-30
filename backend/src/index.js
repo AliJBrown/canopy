@@ -22,8 +22,9 @@ app.use('/api/users', require('./routes/users'));
 app.use('/api/comments', require('./routes/comments'));
 app.use('/api/teams', require('./routes/teams'));
 app.use('/api/admin', require('./routes/admin'));
-app.use('/api/tickets/:ticketId/time-logs',   require('./routes/timeLogs'));
-app.use('/api/tickets/:ticketId/attachments', require('./routes/attachments'));
+app.use('/api/tickets/:ticketId/time-logs',     require('./routes/timeLogs'));
+app.use('/api/tickets/:ticketId/attachments',  require('./routes/attachments'));
+app.use('/api/tickets/:ticketId/dependencies', require('./routes/dependencies'));
 
 // Nested member/team routes under projects (mergeParams handled inside members.js via Router({ mergeParams: true }))
 app.use('/api/projects/:projectId/members',      require('./routes/members'));
@@ -39,6 +40,8 @@ app.use('/api/projects/:projectId/automations',  require('./routes/automations')
 app.use('/api/projects/:projectId/workflow',     require('./routes/workflows'));
 app.use('/api/projects/:projectId/statuses',     require('./routes/projectStatuses'));
 app.use('/api/tokens',                           require('./routes/apiTokens'));
+app.use('/api/notifications',                    require('./routes/notifications'));
+app.use('/api/search',                           require('./routes/search'));
 
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 

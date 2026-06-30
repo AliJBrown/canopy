@@ -10,9 +10,12 @@ import ProjectBoard from './pages/ProjectBoard';
 import ReportsPage from './pages/ReportsPage';
 import GoalsPage from './pages/GoalsPage';
 import OrgGoalsPage from './pages/OrgGoalsPage';
+import GoalDetailPage from './pages/GoalDetailPage';
 import MyGoalsPage from './pages/MyGoalsPage';
 import AutomationsPage from './pages/AutomationsPage';
 import AdminPage from './pages/AdminPage';
+import RoadmapPage from './pages/RoadmapPage';
+import SprintPlanningPage from './pages/SprintPlanningPage';
 
 function AuthCallback() {
   const navigate = useNavigate();
@@ -54,11 +57,14 @@ export default function App() {
               <Route index element={<Navigate to="/projects" replace />} />
               <Route path="projects" element={<ErrorBoundary><ProjectsPage /></ErrorBoundary>} />
               <Route path="goals" element={<ErrorBoundary><OrgGoalsPage /></ErrorBoundary>} />
+              <Route path="goals/:goalId" element={<ErrorBoundary><GoalDetailPage /></ErrorBoundary>} />
               <Route path="my-goals" element={<ErrorBoundary><MyGoalsPage /></ErrorBoundary>} />
               <Route path="p/:projectKey" element={<ErrorBoundary><ProjectBoard /></ErrorBoundary>} />
               <Route path="p/:projectKey/reports" element={<ErrorBoundary><ReportsPage /></ErrorBoundary>} />
               <Route path="p/:projectKey/goals" element={<ErrorBoundary><GoalsPage /></ErrorBoundary>} />
               <Route path="p/:projectKey/automations" element={<ErrorBoundary><AutomationsPage /></ErrorBoundary>} />
+              <Route path="p/:projectKey/roadmap" element={<ErrorBoundary><RoadmapPage /></ErrorBoundary>} />
+              <Route path="p/:projectKey/planning" element={<ErrorBoundary><SprintPlanningPage /></ErrorBoundary>} />
               <Route path="p/:projectKey/:view" element={<ErrorBoundary><ProjectBoard /></ErrorBoundary>} />
               <Route element={<ProtectedRoute adminOnly />}>
                 <Route path="admin" element={<ErrorBoundary><AdminPage /></ErrorBoundary>} />

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
+import GlobalSearch from './GlobalSearch';
 
 export default function Layout() {
   return (
@@ -9,6 +10,7 @@ export default function Layout() {
       <main className="flex-1 overflow-hidden flex flex-col">
         <Outlet />
       </main>
+      <GlobalSearch />
     </div>
   );
 }

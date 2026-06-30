@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { NavLink, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { LayoutGrid, List, Layers, BarChart2, Target, Zap, Plus, ChevronDown, ChevronRight, LogOut, Shield, KeyRound, Lock } from 'lucide-react';
+import { LayoutGrid, List, Layers, BarChart2, Target, Zap, Plus, ChevronDown, ChevronRight, LogOut, Shield, KeyRound, Lock, Search, Map } from 'lucide-react';
 import { getProjects, createProject } from '../api/projects';
 import { getSprints } from '../api/sprints';
 import { useApp } from '../context/AppContext';
 import { Avatar } from './Badge';
 import { changePassword } from '../api/auth';
+import NotificationBell from './NotificationBell';
 
 function ProjectForm({ onClose }) {
   const qc = useQueryClient();
@@ -146,6 +147,12 @@ function ProjectItem({ p, isActive }) {
               </span>
             )}
           </NavLink>
+          <NavLink to={`/p/${p.key}/planning`} className={({ isActive: a }) => subCls(a)}>
+            <List size={11} /> Planning
+          </NavLink>
+          <NavLink to={`/p/${p.key}/roadmap`} className={({ isActive: a }) => subCls(a)}>
+            <Map size={11} /> Roadmap
+          </NavLink>
           <NavLink to={`/p/${p.key}/reports`} className={({ isActive: a }) => subCls(a)}>
             <BarChart2 size={11} /> Reports
           </NavLink>
@@ -175,10 +182,21 @@ export default function Sidebar() {
     <aside className="w-56 flex-shrink-0 bg-slate-900 text-slate-100 flex flex-col h-full">
       <div className="px-4 py-4 flex items-center gap-2 border-b border-slate-700">
         <Target size={20} className="text-indigo-400" />
-        <span className="font-bold text-white tracking-tight text-lg">Canopy</span>
+        <span className="font-bold text-white tracking-tight text-lg flex-1">Canopy</span>
+        <NotificationBell onTicketOpen={null} />
       </div>
 
       <nav className="flex-1 overflow-y-auto scrollbar-thin px-2 py-3 space-y-1">
+        {/* Global search shortcut */}
+        <button
+          onClick={() => document.dispatchEvent(new CustomEvent('open-global-search'))}
+          className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-md transition-colors mb-1"
+        >
+          <Search size={12} />
+          <span>Search</span>
+          <span className="ml-auto text-[9px] bg-slate-700 text-slate-400 px-1.5 py-0.5 rounded font-mono">⌘K</span>
+        </button>
+
         {/* Top-level navigation */}
         <NavLink to="/goals"
           className={({ isActive }) => `flex items-center gap-2 px-2 py-1.5 text-sm rounded-md transition-colors ${

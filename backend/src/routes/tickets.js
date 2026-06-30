@@ -90,6 +90,7 @@ const TICKET_SELECT = `
       (SELECT jsonb_object_agg(tfv.field_id::text, tfv.value)
        FROM ticket_field_values tfv WHERE tfv.ticket_id = t.id), '{}'
     ) AS custom_fields,
+    (SELECT COUNT(*)::int FROM ticket_dependencies td WHERE td.blocked_id = t.id AND td.type = 'blocks') AS blocked_by_count,
     CASE WHEN t.parent_id IS NOT NULL THEN
       jsonb_build_object(
         'id', pt.id, 'title', pt.title,
@@ -261,8 +262,14 @@ router.post('/', async (req, res, next) => {
     const full = await query(`${TICKET_SELECT} WHERE t.id = $1`, [rows[0].id]);
     res.status(201).json(full.rows[0]);
 
-    // Fire automations after responding (non-blocking)
-    setImmediate(() => fireAutomations(project_id, 'ticket.created', {}, full.rows[0]));
+    // Fire automations + log activity after responding (non-blocking)
+    setImmediate(async () => {
+      fireAutomations(project_id, 'ticket.created', {}, full.rows[0]);
+      await query(
+        `INSERT INTO ticket_activity (ticket_id, actor_id, action) VALUES ($1, $2, 'created')`,
+        [rows[0].id, req.user.id]
+      ).catch(() => {});
+    });
   } catch (err) { next(err); }
 });
 
@@ -334,13 +341,43 @@ router.patch('/:id', async (req, res, next) => {
     }
 
     const full = await query(`${TICKET_SELECT} WHERE t.id = $1`, [req.params.id]);
-    res.json(full.rows[0]);
 
-    // Fire automations after responding
+    // Check WIP limit when status changed
+    let wip_warning = null;
+    if ('status' in rest && rest.status !== ticket.status) {
+      const { rows: [statusRow] } = await query(
+        'SELECT wip_limit FROM project_statuses WHERE project_id = $1 AND slug = $2',
+        [ticket.project_id, rest.status]
+      );
+      if (statusRow?.wip_limit != null) {
+        const { rows: [{ cnt }] } = await query(
+          'SELECT COUNT(*)::int AS cnt FROM tickets WHERE project_id = $1 AND status = $2',
+          [ticket.project_id, rest.status]
+        );
+        if (cnt > statusRow.wip_limit) {
+          wip_warning = { status: rest.status, count: cnt, limit: statusRow.wip_limit };
+        }
+      }
+    }
+
+    res.json({ ...full.rows[0], wip_warning });
+
+    // Fire automations + log activity after responding
     const updated = full.rows[0];
     if (updated) {
-      setImmediate(() => {
+      setImmediate(async () => {
         const pid = updated.project_id;
+        const TRACKED = ['status', 'priority', 'assignee_id', 'sprint_id', 'title',
+                         'story_points', 'estimate_hours', 'due_date', 'type'];
+        for (const f of TRACKED) {
+          if (f in rest && String(rest[f] ?? '') !== String(ticket[f] ?? '')) {
+            await query(
+              `INSERT INTO ticket_activity (ticket_id, actor_id, action, field, old_value, new_value)
+               VALUES ($1, $2, 'updated', $3, $4, $5)`,
+              [req.params.id, req.user.id, f, ticket[f] ?? null, rest[f] ?? null]
+            ).catch(() => {});
+          }
+        }
         if ('status' in rest && rest.status !== ticket.status) {
           fireAutomations(pid, 'ticket.status_changed',
             { from: ticket.status, to: rest.status }, updated);
@@ -348,6 +385,18 @@ router.patch('/:id', async (req, res, next) => {
         if ('assignee_id' in rest && rest.assignee_id !== ticket.assignee_id) {
           fireAutomations(pid, 'ticket.assigned',
             { assignee_id: rest.assignee_id }, updated);
+          // Notify new assignee
+          if (rest.assignee_id && rest.assignee_id !== req.user.id) {
+            await query(
+              `INSERT INTO notifications (user_id, actor_id, type, ticket_id, data)
+               VALUES ($1, $2, 'assigned', $3, $4)`,
+              [rest.assignee_id, req.user.id, req.params.id, JSON.stringify({
+                ticket_title: updated.title,
+                project_key: updated.project_key,
+                ticket_number: updated.number,
+              })]
+            ).catch(() => {});
+          }
         }
         if ('priority' in rest && rest.priority !== ticket.priority) {
           fireAutomations(pid, 'ticket.priority_changed',
@@ -363,16 +412,32 @@ router.delete('/:id', async (req, res, next) => {
     const { rows: [ticket] } = await query('SELECT project_id, reporter_id FROM tickets WHERE id = $1', [req.params.id]);
     if (!ticket) return res.status(404).json({ error: 'Not found' });
 
-    const role = await assertProjectPermission(req, res, ticket.project_id, 'tickets.write');
+    const role = await assertProjectPermission(req, res, ticket.project_id, 'tickets.delete');
     if (!role) return;
-
-    const canDeleteAny = await hasProjectPermission(req.user.id, ticket.project_id, req.user.role, 'tickets.delete');
-    if (!canDeleteAny && ticket.reporter_id !== req.user.id) {
-      return res.status(403).json({ error: 'You can only delete tickets you created' });
-    }
 
     await query('DELETE FROM tickets WHERE id = $1', [req.params.id]);
     res.status(204).send();
+  } catch (err) { next(err); }
+});
+
+// GET /:id/activity — ticket activity feed
+router.get('/:id/activity', async (req, res, next) => {
+  try {
+    const { rows: [ticket] } = await query('SELECT project_id FROM tickets WHERE id = $1', [req.params.id]);
+    if (!ticket) return res.status(404).json({ error: 'Not found' });
+    const role = await assertProjectPermission(req, res, ticket.project_id, 'tickets.view');
+    if (!role) return;
+
+    const { rows } = await query(`
+      SELECT
+        ta.*,
+        json_build_object('id', u.id, 'name', u.name, 'color', u.color, 'avatar_url', u.avatar_url) AS actor
+      FROM ticket_activity ta
+      LEFT JOIN users u ON u.id = ta.actor_id
+      WHERE ta.ticket_id = $1
+      ORDER BY ta.created_at ASC
+    `, [req.params.id]);
+    res.json(rows);
   } catch (err) { next(err); }
 });
 

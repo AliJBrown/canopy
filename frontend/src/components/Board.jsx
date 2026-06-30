@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { DndContext, DragOverlay, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { useDroppable, useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
-import { Plus, CalendarClock } from 'lucide-react';
+import { Plus, CalendarClock, AlertCircle } from 'lucide-react';
 import { TypeBadge, PriorityBadge, Avatar, STATUS_CONFIG } from './Badge';
 
 function DueDateChip({ dueDate, status }) {
@@ -36,6 +36,7 @@ function TicketCard({ ticket, onClick, isDragOverlay = false }) {
   });
 
   const style = { transform: CSS.Translate.toString(transform) };
+  const isBlocked = ticket.blocked_by_count > 0;
 
   return (
     <div
@@ -44,16 +45,23 @@ function TicketCard({ ticket, onClick, isDragOverlay = false }) {
       {...attributes}
       {...listeners}
       onClick={() => !isDragging && onClick(ticket)}
-      className={`bg-white rounded-lg border border-slate-200 p-3 cursor-pointer select-none
+      className={`bg-white rounded-lg border p-3 cursor-pointer select-none
         hover:border-indigo-300 hover:shadow-sm transition-all group
         ${isDragging ? 'opacity-40 shadow-lg' : ''}
         ${isDragOverlay ? 'shadow-xl rotate-1 opacity-95' : ''}
+        ${isBlocked ? 'border-red-200' : 'border-slate-200'}
       `}
     >
       <div className="flex items-start justify-between gap-2 mb-2">
         <div className="flex items-center gap-1.5 min-w-0">
           <TypeBadge type={ticket.type} />
           <span className="text-[11px] text-slate-400 font-mono">{ticket.ticket_key}</span>
+          {isBlocked && (
+            <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-red-600 bg-red-50 px-1.5 py-0.5 rounded">
+              <AlertCircle size={9} />
+              Blocked
+            </span>
+          )}
         </div>
         <PriorityBadge priority={ticket.priority} />
       </div>
@@ -88,8 +96,9 @@ function TicketCard({ ticket, onClick, isDragOverlay = false }) {
   );
 }
 
-function Column({ status, label, color, tickets, onTicketClick, onAddClick }) {
+function Column({ status, label, color, wip_limit, tickets, onTicketClick, onAddClick }) {
   const { isOver, setNodeRef } = useDroppable({ id: status });
+  const overLimit = wip_limit != null && tickets.length >= wip_limit;
 
   return (
     <div className="flex flex-col w-72 flex-shrink-0">
@@ -97,7 +106,13 @@ function Column({ status, label, color, tickets, onTicketClick, onAddClick }) {
         <div className="flex items-center gap-2">
           {color && <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: color }} />}
           <span className="text-xs font-semibold text-slate-600 uppercase tracking-wider">{label}</span>
-          <span className="text-xs bg-slate-200 text-slate-500 rounded-full px-1.5 py-0.5 font-medium">{tickets.length}</span>
+          <span className={`text-xs rounded-full px-1.5 py-0.5 font-medium ${
+            overLimit
+              ? 'bg-red-100 text-red-600 font-bold'
+              : 'bg-slate-200 text-slate-500'
+          }`}>
+            {wip_limit != null ? `${tickets.length} / ${wip_limit}` : tickets.length}
+          </span>
         </div>
         <button onClick={() => onAddClick(status)}
           className="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-colors">
@@ -107,7 +122,7 @@ function Column({ status, label, color, tickets, onTicketClick, onAddClick }) {
       <div
         ref={setNodeRef}
         className={`flex-1 space-y-2 min-h-[100px] p-2 rounded-xl transition-colors
-          ${isOver ? 'bg-indigo-50 ring-2 ring-indigo-200' : 'bg-slate-100/60'}`}
+          ${isOver ? 'bg-indigo-50 ring-2 ring-indigo-200' : overLimit ? 'bg-red-50/40' : 'bg-slate-100/60'}`}
       >
         {tickets.map(t => (
           <TicketCard key={t.id} ticket={t} onClick={onTicketClick} />
@@ -119,6 +134,7 @@ function Column({ status, label, color, tickets, onTicketClick, onAddClick }) {
 
 export default function Board({ tickets, onTicketClick, onStatusChange, onAddClick, statuses }) {
   const [activeTicket, setActiveTicket] = useState(null);
+  const [wipToast, setWipToast] = useState(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
@@ -133,13 +149,18 @@ export default function Board({ tickets, onTicketClick, onStatusChange, onAddCli
     if (!over) return;
     const ticket = tickets.find(t => t.id === active.id);
     if (ticket && over.id !== ticket.status) {
-      onStatusChange(ticket.id, over.id);
+      onStatusChange(ticket.id, over.id, (warning) => {
+        if (warning) {
+          setWipToast(`WIP limit exceeded: ${warning.count}/${warning.limit} in "${over.id}"`);
+          setTimeout(() => setWipToast(null), 4000);
+        }
+      });
     }
   };
 
   const columns = statuses && statuses.length > 0
-    ? statuses.map(s => ({ status: s.slug, label: s.name, color: s.color, tickets: tickets.filter(t => t.status === s.slug) }))
-    : Object.entries(STATUS_CONFIG).map(([status, cfg]) => ({ status, label: cfg.label, color: null, tickets: tickets.filter(t => t.status === status) }));
+    ? statuses.map(s => ({ status: s.slug, label: s.name, color: s.color, wip_limit: s.wip_limit ?? null, tickets: tickets.filter(t => t.status === s.slug) }))
+    : Object.entries(STATUS_CONFIG).map(([status, cfg]) => ({ status, label: cfg.label, color: null, wip_limit: null, tickets: tickets.filter(t => t.status === status) }));
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
@@ -156,6 +177,11 @@ export default function Board({ tickets, onTicketClick, onStatusChange, onAddCli
       <DragOverlay>
         {activeTicket && <TicketCard ticket={activeTicket} onClick={() => {}} isDragOverlay />}
       </DragOverlay>
+      {wipToast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-amber-600 text-white text-sm font-medium px-4 py-2 rounded-lg shadow-lg">
+          {wipToast}
+        </div>
+      )}
     </DndContext>
   );
 }

@@ -74,7 +74,7 @@ router.patch('/:statusId', async (req, res, next) => {
     const role = await assertProjectPermission(req, res, req.params.projectId, 'statuses.manage');
     if (!role) return;
 
-    const allowed = ['name', 'color', 'category', 'position'];
+    const allowed = ['name', 'color', 'category', 'position', 'wip_limit'];
     const updates = [];
     const params = [];
     allowed.forEach(f => {

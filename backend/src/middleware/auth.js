@@ -145,6 +145,10 @@ async function getEffectiveProjectRole(userId, projectId, userSystemRole) {
 // Permission check that sends 403 and returns null on failure.
 // Returns the user's project role string on success.
 async function assertProjectPermission(req, res, projectId, permission) {
+  if (req.apiTokenProjectId && req.apiTokenProjectId !== projectId) {
+    res.status(403).json({ error: 'This API token is scoped to a different project' });
+    return null;
+  }
   if (req.user.role === 'admin') return 'owner';
 
   const role = await getEffectiveProjectRole(req.user.id, projectId, req.user.role);

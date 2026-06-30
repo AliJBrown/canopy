@@ -237,6 +237,15 @@ function WorkflowTab({ projectId, canManage }) {
                 >
                   {Object.entries(CATEGORY_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
                 </select>
+                <div className="flex items-center gap-1">
+                  <label className="text-[10px] text-slate-500 whitespace-nowrap">WIP limit</label>
+                  <input
+                    type="number" min="1" placeholder="∞"
+                    value={editData.wip_limit ?? (s.wip_limit != null ? s.wip_limit : '')}
+                    onChange={e => setEditData(d => ({ ...d, wip_limit: e.target.value === '' ? null : parseInt(e.target.value) }))}
+                    className="w-16 text-xs border border-slate-200 rounded px-1.5 py-1 outline-none focus:ring-1 focus:ring-indigo-300"
+                  />
+                </div>
                 <div className="flex gap-1 ml-auto">
                   <button onClick={() => updateMut.mutate({ id: s.id, data: editData })} disabled={updateMut.isPending}
                     className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded">
@@ -259,6 +268,11 @@ function WorkflowTab({ projectId, canManage }) {
                 <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${CATEGORY_META[s.category]?.color}`}>
                   {CATEGORY_META[s.category]?.label}
                 </span>
+                {s.wip_limit != null && (
+                  <span className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded font-mono">
+                    WIP {s.wip_limit}
+                  </span>
+                )}
                 {s.is_default && (
                   <span className="text-[10px] text-slate-400 italic">default</span>
                 )}
