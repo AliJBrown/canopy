@@ -445,7 +445,7 @@ function GoalPanel({ goalId, goals, assignedGoals, projects, onClose, onDelete }
                 <span className="flex items-center gap-1 text-[10px] text-slate-400">
                   {goal.project
                     ? <><span className="font-medium text-indigo-600">{goal.project.name}</span> · assigned to you</>
-                    : 'Company goal · assigned to you'}
+                    : 'Strategic goal · assigned to you'}
                 </span>
               ) : goal.is_public && goal.project ? (
                 <span className="flex items-center gap-1 text-[10px] text-indigo-600 font-medium">

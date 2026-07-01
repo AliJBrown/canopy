@@ -153,7 +153,7 @@ router.get('/', async (req, res, next) => {
 router.post('/', async (req, res, next) => {
   try {
     if (!(await checkSystemPermission(req.user, 'org_goals.write')))
-      return res.status(403).json({ error: 'You do not have permission to create company goals' });
+      return res.status(403).json({ error: 'You do not have permission to create strategic goals' });
     const {
       title, description = '', goal_type = 'objective', metric_type = 'manual',
       target_value, unit = '%', weight = 1.0, status = 'not_started',
@@ -219,6 +219,31 @@ async function computeGoalSubtree(goalId) {
 
   return byId[goalId];
 }
+
+// GET /all-dependencies — all goal dependencies across the org (for Gantt arrows)
+router.get('/all-dependencies', async (req, res, next) => {
+  try {
+    const { rows } = await query(
+      'SELECT id, blocker_id, blocked_id, type FROM goal_dependencies ORDER BY created_at'
+    );
+    res.json(rows);
+  } catch (err) { next(err); }
+});
+
+// GET /search — search goal titles (for dependency picker)
+router.get('/search', async (req, res, next) => {
+  try {
+    const { q = '' } = req.query;
+    const { rows } = await query(`
+      SELECT id, title, goal_type, status, parent_id
+      FROM project_goals
+      WHERE ($1 = '' OR title ILIKE '%' || $1 || '%')
+      ORDER BY created_at DESC
+      LIMIT 20
+    `, [q]);
+    res.json(rows);
+  } catch (err) { next(err); }
+});
 
 // GET /:id — single goal with direct children, linked tickets, and ancestor breadcrumb chain
 router.get('/:id', async (req, res, next) => {
@@ -308,7 +333,7 @@ router.get('/:id', async (req, res, next) => {
 router.post('/:id/sub-goals', async (req, res, next) => {
   try {
     if (!(await checkSystemPermission(req.user, 'org_goals.write')))
-      return res.status(403).json({ error: 'You do not have permission to create company goals' });
+      return res.status(403).json({ error: 'You do not have permission to create strategic goals' });
     const {
       title, description = '', goal_type = 'key_result', metric_type = 'completion',
       target_value, unit = '%', weight = 1.0, status = 'not_started',
@@ -316,15 +341,29 @@ router.post('/:id/sub-goals', async (req, res, next) => {
     } = req.body;
     if (!title) return res.status(400).json({ error: 'title required' });
 
+    const { rows: [parent] } = await query(
+      'SELECT is_private FROM project_goals WHERE id = $1',
+      [req.params.id]
+    );
+    const inheritPrivate = parent?.is_private || false;
+
     const { rows } = await query(`
       INSERT INTO project_goals
         (project_id, parent_id, title, description, goal_type, metric_type,
-         target_value, unit, weight, status, owner_id, start_date, due_date, position)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+         target_value, unit, weight, status, owner_id, start_date, due_date, position, is_private)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
       RETURNING *
     `, [project_id || null, req.params.id, title, description, goal_type, metric_type,
         target_value || null, unit, weight, status, owner_id || null,
-        start_date || null, due_date || null, position]);
+        start_date || null, due_date || null, position, inheritPrivate]);
+
+    if (inheritPrivate) {
+      await query(`
+        INSERT INTO goal_members (goal_id, user_id)
+        SELECT $1, user_id FROM goal_members WHERE goal_id = $2
+        ON CONFLICT DO NOTHING
+      `, [rows[0].id, req.params.id]);
+    }
 
     res.status(201).json(rows[0]);
   } catch (err) { next(err); }
@@ -334,7 +373,7 @@ router.post('/:id/sub-goals', async (req, res, next) => {
 router.get('/:id/ticket-candidates', async (req, res, next) => {
   try {
     if (!(await checkSystemPermission(req.user, 'org_goals.write')))
-      return res.status(403).json({ error: 'You do not have permission to modify company goals' });
+      return res.status(403).json({ error: 'You do not have permission to modify strategic goals' });
     const { q = '' } = req.query;
     const { rows } = await query(`
       SELECT t.id, t.title, t.type, t.status, t.priority, t.story_points,
@@ -358,7 +397,7 @@ router.get('/:id/ticket-candidates', async (req, res, next) => {
 router.post('/:id/tickets', async (req, res, next) => {
   try {
     if (!(await checkSystemPermission(req.user, 'org_goals.write')))
-      return res.status(403).json({ error: 'You do not have permission to modify company goals' });
+      return res.status(403).json({ error: 'You do not have permission to modify strategic goals' });
     const { ticket_id } = req.body;
     if (!ticket_id) return res.status(400).json({ error: 'ticket_id required' });
     await query(
@@ -373,7 +412,7 @@ router.post('/:id/tickets', async (req, res, next) => {
 router.delete('/:id/tickets/:ticketId', async (req, res, next) => {
   try {
     if (!(await checkSystemPermission(req.user, 'org_goals.write')))
-      return res.status(403).json({ error: 'You do not have permission to modify company goals' });
+      return res.status(403).json({ error: 'You do not have permission to modify strategic goals' });
     await query(
       'DELETE FROM ticket_goal_links WHERE goal_id = $1 AND ticket_id = $2',
       [req.params.id, req.params.ticketId]
@@ -386,7 +425,7 @@ router.delete('/:id/tickets/:ticketId', async (req, res, next) => {
 router.patch('/:id', async (req, res, next) => {
   try {
     if (!(await checkSystemPermission(req.user, 'org_goals.write')))
-      return res.status(403).json({ error: 'You do not have permission to edit company goals' });
+      return res.status(403).json({ error: 'You do not have permission to edit strategic goals' });
 
     const { rows: [existing] } = await query('SELECT * FROM project_goals WHERE id = $1', [req.params.id]);
     if (!existing) return res.status(404).json({ error: 'Not found' });
@@ -434,7 +473,7 @@ router.get('/:id/members', async (req, res, next) => {
 router.post('/:id/members', async (req, res, next) => {
   try {
     if (!(await checkSystemPermission(req.user, 'org_goals.write')))
-      return res.status(403).json({ error: 'You do not have permission to modify company goals' });
+      return res.status(403).json({ error: 'You do not have permission to modify strategic goals' });
     const { user_id } = req.body;
     if (!user_id) return res.status(400).json({ error: 'user_id required' });
     await query(
@@ -449,10 +488,69 @@ router.post('/:id/members', async (req, res, next) => {
 router.delete('/:id/members/:userId', async (req, res, next) => {
   try {
     if (!(await checkSystemPermission(req.user, 'org_goals.write')))
-      return res.status(403).json({ error: 'You do not have permission to modify company goals' });
+      return res.status(403).json({ error: 'You do not have permission to modify strategic goals' });
     await query(
       'DELETE FROM goal_members WHERE goal_id = $1 AND user_id = $2',
       [req.params.id, req.params.userId]
+    );
+    res.status(204).send();
+  } catch (err) { next(err); }
+});
+
+// GET /:id/dependencies — blockers and blocks for a single goal
+router.get('/:id/dependencies', async (req, res, next) => {
+  try {
+    const { rows: blockedBy } = await query(`
+      SELECT gd.id, gd.type, g.id AS goal_id, g.title, g.goal_type, g.status, g.due_date
+      FROM goal_dependencies gd
+      JOIN project_goals g ON g.id = gd.blocker_id
+      WHERE gd.blocked_id = $1
+      ORDER BY gd.created_at
+    `, [req.params.id]);
+
+    const { rows: blocks } = await query(`
+      SELECT gd.id, gd.type, g.id AS goal_id, g.title, g.goal_type, g.status, g.due_date
+      FROM goal_dependencies gd
+      JOIN project_goals g ON g.id = gd.blocked_id
+      WHERE gd.blocker_id = $1
+      ORDER BY gd.created_at
+    `, [req.params.id]);
+
+    res.json({ blockedBy, blocks });
+  } catch (err) { next(err); }
+});
+
+// POST /:id/dependencies — add a dependency
+router.post('/:id/dependencies', async (req, res, next) => {
+  try {
+    if (!(await checkSystemPermission(req.user, 'org_goals.write')))
+      return res.status(403).json({ error: 'Permission denied' });
+
+    const { blocker_id, blocked_id, type = 'blocks' } = req.body;
+    if (!blocker_id || !blocked_id)
+      return res.status(400).json({ error: 'blocker_id and blocked_id required' });
+    if (blocker_id === blocked_id)
+      return res.status(400).json({ error: 'A goal cannot depend on itself' });
+
+    const { rows: [dep] } = await query(
+      `INSERT INTO goal_dependencies (blocker_id, blocked_id, type, created_by)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (blocker_id, blocked_id) DO NOTHING
+       RETURNING *`,
+      [blocker_id, blocked_id, type, req.user.id]
+    );
+    res.status(201).json(dep || { ok: true });
+  } catch (err) { next(err); }
+});
+
+// DELETE /:id/dependencies/:depId — remove a dependency
+router.delete('/:id/dependencies/:depId', async (req, res, next) => {
+  try {
+    if (!(await checkSystemPermission(req.user, 'org_goals.write')))
+      return res.status(403).json({ error: 'Permission denied' });
+    await query(
+      'DELETE FROM goal_dependencies WHERE id = $1 AND (blocker_id = $2 OR blocked_id = $2)',
+      [req.params.depId, req.params.id]
     );
     res.status(204).send();
   } catch (err) { next(err); }
@@ -462,7 +560,7 @@ router.delete('/:id/members/:userId', async (req, res, next) => {
 router.patch('/:id/lock', async (req, res, next) => {
   try {
     if (!(await checkSystemPermission(req.user, 'org_goals.lock')))
-      return res.status(403).json({ error: 'You do not have permission to lock company goals' });
+      return res.status(403).json({ error: 'You do not have permission to lock strategic goals' });
     const { is_locked } = req.body;
     const { rows: [goal] } = await query(
       'UPDATE project_goals SET is_locked = $1 WHERE id = $2 RETURNING *',
@@ -477,7 +575,7 @@ router.patch('/:id/lock', async (req, res, next) => {
 router.delete('/:id', async (req, res, next) => {
   try {
     if (!(await checkSystemPermission(req.user, 'org_goals.delete')))
-      return res.status(403).json({ error: 'You do not have permission to delete company goals' });
+      return res.status(403).json({ error: 'You do not have permission to delete strategic goals' });
 
     const { rows: [existing] } = await query('SELECT * FROM project_goals WHERE id = $1', [req.params.id]);
     if (!existing) return res.status(404).json({ error: 'Not found' });

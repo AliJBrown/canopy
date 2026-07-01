@@ -21,3 +21,14 @@ export const addGoalMember = (goalId, userId) =>
   client.post(`/api/goals/${goalId}/members`, { user_id: userId });
 export const removeGoalMember = (goalId, userId) =>
   client.delete(`/api/goals/${goalId}/members/${userId}`);
+
+export const getAllGoalDependencies = () =>
+  client.get('/api/goals/all-dependencies');
+export const searchGoals = (q) =>
+  client.get('/api/goals/search', { params: { q } });
+export const getGoalDependencies = (goalId) =>
+  client.get(`/api/goals/${goalId}/dependencies`);
+export const addGoalDependency = (goalId, data) =>
+  client.post(`/api/goals/${goalId}/dependencies`, data);
+export const removeGoalDependency = (goalId, depId) =>
+  client.delete(`/api/goals/${goalId}/dependencies/${depId}`);

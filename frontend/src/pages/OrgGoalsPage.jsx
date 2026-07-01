@@ -1,27 +1,27 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Target, X, LayoutGrid, CalendarRange, Lock, EyeOff } from 'lucide-react';
-import { getOrgGoals, createOrgGoal } from '../api/orgGoals';
+import { Plus, Target, X, LayoutGrid, GanttChartSquare, Lock, EyeOff, ChevronRight, ChevronDown } from 'lucide-react';
+import { getOrgGoals, createOrgGoal, getAllGoalDependencies } from '../api/orgGoals';
 import { Avatar } from '../components/Badge';
 import { useApp } from '../context/AppContext';
 import client from '../api/client';
 
 const STATUS_META = {
-  not_started: { label: 'Not Started', cls: 'bg-slate-100 text-slate-500',        color: '#94a3b8' },
-  on_track:    { label: 'On Track',    cls: 'bg-emerald-100 text-emerald-700',     color: '#10b981' },
-  at_risk:     { label: 'At Risk',     cls: 'bg-amber-100 text-amber-700',         color: '#f59e0b' },
-  behind:      { label: 'Behind',      cls: 'bg-red-100 text-red-700',             color: '#ef4444' },
-  completed:   { label: 'Completed',   cls: 'bg-indigo-100 text-indigo-700',       color: '#6366f1' },
-  cancelled:   { label: 'Cancelled',   cls: 'bg-slate-100 text-slate-400',         color: '#cbd5e1' },
+  not_started: { label: 'Not Started', cls: 'bg-slate-100 text-slate-500',    color: '#94a3b8' },
+  on_track:    { label: 'On Track',    cls: 'bg-emerald-100 text-emerald-700', color: '#10b981' },
+  at_risk:     { label: 'At Risk',     cls: 'bg-amber-100 text-amber-700',     color: '#f59e0b' },
+  behind:      { label: 'Behind',      cls: 'bg-red-100 text-red-700',         color: '#ef4444' },
+  completed:   { label: 'Completed',   cls: 'bg-indigo-100 text-indigo-700',   color: '#6366f1' },
+  cancelled:   { label: 'Cancelled',   cls: 'bg-slate-100 text-slate-400',     color: '#cbd5e1' },
 };
 
 const GOAL_TYPE_META = {
-  objective:  { label: 'Objective',  cls: 'bg-purple-100 text-purple-700' },
-  key_result: { label: 'Key Result', cls: 'bg-blue-100 text-blue-700' },
-  milestone:  { label: 'Milestone',  cls: 'bg-amber-100 text-amber-700' },
-  initiative: { label: 'Initiative', cls: 'bg-teal-100 text-teal-700' },
-  task:       { label: 'Task',       cls: 'bg-sky-100 text-sky-700' },
+  objective:  { label: 'Objective',  abbr: 'O',  cls: 'bg-purple-100 text-purple-700' },
+  key_result: { label: 'Key Result', abbr: 'KR', cls: 'bg-blue-100 text-blue-700' },
+  milestone:  { label: 'Milestone',  abbr: 'M',  cls: 'bg-amber-100 text-amber-700' },
+  initiative: { label: 'Initiative', abbr: 'I',  cls: 'bg-teal-100 text-teal-700' },
+  task:       { label: 'Task',       abbr: 'T',  cls: 'bg-sky-100 text-sky-700' },
 };
 
 function progressColor(p) {
@@ -43,141 +43,275 @@ function ProgressBar({ value }) {
   );
 }
 
-// ── Gantt timeline ──────────────────────────────────────────────────────────
+// ── Gantt ────────────────────────────────────────────────────────────────────
 
-function GoalTimeline({ goals, onGoalClick }) {
-  const now = new Date();
+const LABEL_W = 280;
+const ROW_H   = 40;
+const HEADER_H = 34;
 
-  const allDates = goals.flatMap(g => [
-    g.start_date && new Date(g.start_date),
-    g.due_date   && new Date(g.due_date),
-  ].filter(Boolean));
-
-  if (allDates.length === 0) {
-    allDates.push(new Date(now.getFullYear(), now.getMonth() - 1, 1));
-    allDates.push(new Date(now.getFullYear(), now.getMonth() + 4, 0));
+function flattenGoals(goals, depth = 0, collapsed = new Set()) {
+  const rows = [];
+  for (const g of goals) {
+    const children = g.children || [];
+    rows.push({ goal: g, depth, hasChildren: children.length > 0 });
+    if (children.length > 0 && !collapsed.has(g.id)) {
+      rows.push(...flattenGoals(children, depth + 1, collapsed));
+    }
   }
+  return rows;
+}
 
-  const minD = new Date(Math.min(...allDates));
-  const maxD = new Date(Math.max(...allDates));
-  const rangeStart = new Date(minD.getFullYear(), minD.getMonth(), 1);
-  const rangeEnd   = new Date(maxD.getFullYear(), maxD.getMonth() + 1, 0);
-  const totalMs    = Math.max(rangeEnd - rangeStart, 1);
+function useDateRange(rows) {
+  return useMemo(() => {
+    const now = new Date();
+    const dates = rows.flatMap(({ goal: g }) => [
+      g.start_date ? new Date(g.start_date) : null,
+      g.due_date   ? new Date(g.due_date)   : null,
+    ].filter(Boolean));
 
-  const months = [];
-  const cur = new Date(rangeStart);
-  while (cur <= rangeEnd) {
-    months.push(new Date(cur));
-    cur.setMonth(cur.getMonth() + 1);
-  }
+    const minD = dates.length ? new Date(Math.min(...dates)) : new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const maxD = dates.length ? new Date(Math.max(...dates)) : new Date(now.getFullYear(), now.getMonth() + 5, 0);
+    const rs   = new Date(minD.getFullYear(), minD.getMonth() - 1, 1);
+    const re   = new Date(maxD.getFullYear(), maxD.getMonth() + 2, 0);
+    const span = Math.max(re - rs, 1);
 
-  const pct = (date) =>
-    Math.max(0, Math.min(100, ((new Date(date) - rangeStart) / totalMs) * 100));
+    const months = [];
+    const cur = new Date(rs);
+    while (cur <= re) { months.push(new Date(cur)); cur.setMonth(cur.getMonth() + 1); }
 
+    const pct = (d) => Math.max(0, Math.min(100, ((new Date(d) - rs) / span) * 100));
+    return { rangeStart: rs, rangeEnd: re, months, pct, now };
+  }, [rows]);
+}
+
+function GanttChart({ goals, dependencies = [], onGoalClick }) {
+  const [collapsed, setCollapsed] = useState(new Set());
+  const chartRef  = useRef(null);
+  const [chartPx, setChartPx] = useState(800);
+
+  useEffect(() => {
+    const el = chartRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([e]) => setChartPx(e.contentRect.width));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const rows = useMemo(() => flattenGoals(goals, 0, collapsed), [goals, collapsed]);
+  const { months, pct, now } = useDateRange(rows);
   const todayPct = pct(now);
 
+  // Visible row index by goal ID (for arrow routing)
+  const rowIdx = useMemo(() => {
+    const m = {};
+    rows.forEach(({ goal }, i) => { m[goal.id] = i; });
+    return m;
+  }, [rows]);
+
+  // Bar bounds per goal (in %)
+  const bounds = useMemo(() => {
+    const b = {};
+    rows.forEach(({ goal: g }) => {
+      const sp = g.start_date ? pct(g.start_date)
+               : g.due_date   ? Math.max(0, pct(g.due_date) - 4) : todayPct;
+      const ep = g.due_date   ? pct(g.due_date) : Math.min(100, sp + 4);
+      b[g.id] = { sp: Math.max(0, sp), ep: Math.min(100, Math.max(ep, sp + 0.3)) };
+    });
+    return b;
+  }, [rows, pct, todayPct]);
+
+  const toggle = (id) => setCollapsed(c => {
+    const n = new Set(c); n.has(id) ? n.delete(id) : n.add(id); return n;
+  });
+
+  const totalH = rows.length * ROW_H;
+
+  // Only draw arrows for goals that are both visible in the current collapsed state
+  const visibleDeps = dependencies.filter(d => rowIdx[d.blocker_id] != null && rowIdx[d.blocked_id] != null);
+
   return (
-    <div style={{ minWidth: '640px' }}>
-      {/* Month header row */}
-      <div className="flex mb-1">
-        <div className="w-56 flex-shrink-0" />
-        <div className="flex-1 relative h-8 border-b border-slate-100">
-          {months.map((m, i) => (
-            <div key={i}
-              className="absolute top-0 h-full border-l border-slate-100 pl-2 flex items-center"
-              style={{ left: `${pct(m)}%` }}>
-              <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wide whitespace-nowrap">
-                {m.toLocaleDateString('en-US', {
-                  month: 'short',
-                  year: (i === 0 || m.getMonth() === 0) ? 'numeric' : undefined,
-                })}
-              </span>
-            </div>
-          ))}
-          {/* Today line (header) */}
-          <div className="absolute top-0 h-full w-px bg-red-400/40" style={{ left: `${todayPct}%` }} />
-        </div>
-      </div>
-
-      {/* Goal rows */}
-      {goals.map(goal => {
-        const statusKey = goal.auto_status || goal.status;
-        const barColor  = STATUS_META[statusKey]?.color || '#94a3b8';
-        const childCount = (goal.children || []).length;
-        const ticketCount = parseInt(goal.linked_count) || 0;
-
-        const startPct = goal.start_date
-          ? pct(goal.start_date)
-          : goal.due_date ? Math.max(0, pct(goal.due_date) - 8) : Math.max(0, todayPct - 2);
-        const endPct = goal.due_date
-          ? pct(goal.due_date)
-          : Math.min(100, startPct + 8);
-        const barWidth = Math.max(endPct - startPct, 0.5);
-        const progress = goal.progress || 0;
-
-        return (
-          <div key={goal.id}
-            className="flex items-center h-12 border-b border-slate-50 hover:bg-slate-50 transition-colors group">
-            {/* Label column */}
-            <div className="w-56 flex-shrink-0 pr-4">
-              <button onClick={() => onGoalClick(goal.id)}
-                className="text-sm text-slate-700 font-medium truncate text-left hover:text-indigo-600 w-full transition-colors block">
-                {goal.title}
-              </button>
-              <div className="flex items-center gap-2 mt-0.5">
-                {childCount > 0 && (
-                  <span className="text-[10px] text-slate-400">
-                    {childCount} sub-goal{childCount !== 1 ? 's' : ''}
-                  </span>
-                )}
-                {ticketCount > 0 && (
-                  <span className="text-[10px] text-slate-400">
-                    {parseInt(goal.completed_count) || 0}/{ticketCount} tickets
-                  </span>
-                )}
-              </div>
-            </div>
-            {/* Timeline column */}
-            <div className="flex-1 relative h-full">
-              {/* Month grid lines */}
-              {months.map((m, i) => i > 0 && (
-                <div key={i} className="absolute top-0 bottom-0 w-px bg-slate-100"
-                  style={{ left: `${pct(m)}%` }} />
-              ))}
-              {/* Today line */}
-              <div className="absolute top-0 bottom-0 w-px bg-red-400/40 z-10"
-                style={{ left: `${todayPct}%` }} />
-              {/* Bar */}
-              <div
-                className="absolute rounded-md cursor-pointer hover:brightness-110 transition-all overflow-hidden"
-                style={{
-                  left: `${startPct}%`,
-                  width: `${barWidth}%`,
-                  top: '22%',
-                  height: '56%',
-                  backgroundColor: barColor,
-                }}
-                onClick={() => onGoalClick(goal.id)}
-                title={goal.title}>
-                <div className="h-full bg-black/10 rounded-md"
-                  style={{ width: `${progress}%` }} />
-                {barWidth > 16 && (
-                  <div className="absolute inset-0 flex items-center px-2">
-                    <span className="text-white text-[10px] font-semibold truncate drop-shadow-sm">
-                      {goal.title}
-                    </span>
-                  </div>
-                )}
-              </div>
-            </div>
+    <div className="overflow-x-auto">
+      <div style={{ minWidth: LABEL_W + 700 }}>
+        {/* Header */}
+        <div className="flex border-b border-slate-200 bg-white sticky top-0 z-20" style={{ height: HEADER_H }}>
+          <div style={{ width: LABEL_W, flexShrink: 0 }}
+            className="border-r border-slate-200 flex items-center px-4">
+            <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Goal</span>
           </div>
-        );
-      })}
+          <div className="flex-1 relative overflow-hidden" ref={chartRef}>
+            {months.map((m, i) => (
+              <div key={i}
+                className="absolute top-0 h-full border-l border-slate-100 flex items-center pl-1.5"
+                style={{ left: `${pct(m)}%` }}>
+                <span className="text-[10px] text-slate-400 font-semibold uppercase whitespace-nowrap">
+                  {m.toLocaleDateString('en-US', {
+                    month: 'short',
+                    year: (i === 0 || m.getMonth() === 0) ? 'numeric' : undefined,
+                  })}
+                </span>
+              </div>
+            ))}
+            <div className="absolute top-0 h-full w-px bg-red-400/60" style={{ left: `${todayPct}%` }} />
+          </div>
+        </div>
 
-      {/* Today legend */}
-      <div className="flex items-center gap-1.5 mt-4 text-[10px] text-slate-400">
-        <div className="w-4 h-0.5 bg-red-400/60 rounded" />
-        Today
+        {/* Body */}
+        <div className="relative" style={{ height: totalH }}>
+          {/* SVG arrows — sits over chart area only */}
+          <svg
+            className="absolute pointer-events-none z-10"
+            style={{ left: LABEL_W, top: 0, width: chartPx, height: totalH }}
+          >
+            <defs>
+              <marker id="dep-arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+                <path d="M0,0 L6,3 L0,6 Z" fill="#818cf8" />
+              </marker>
+            </defs>
+            {visibleDeps.map((dep, i) => {
+              const fb = bounds[dep.blocker_id];
+              const tb = bounds[dep.blocked_id];
+              const ri = rowIdx[dep.blocker_id];
+              const rj = rowIdx[dep.blocked_id];
+              const x1 = (fb.ep / 100) * chartPx;
+              const y1 = (ri + 0.5) * ROW_H;
+              const x2 = (tb.sp / 100) * chartPx;
+              const y2 = (rj + 0.5) * ROW_H;
+              const cx = (x1 + x2) / 2;
+              return (
+                <path key={i}
+                  d={`M${x1},${y1} C${cx},${y1} ${cx},${y2} ${x2},${y2}`}
+                  fill="none"
+                  stroke="#818cf8"
+                  strokeWidth="1.5"
+                  strokeDasharray={dep.type === 'relates_to' ? '5 3' : undefined}
+                  markerEnd="url(#dep-arrow)"
+                />
+              );
+            })}
+          </svg>
+
+          {/* Rows */}
+          {rows.map(({ goal: g, depth, hasChildren }, i) => {
+            const statusKey = g.auto_status || g.status;
+            const barColor  = STATUS_META[statusKey]?.color || '#94a3b8';
+            const b         = bounds[g.id];
+            const progress  = g.progress || 0;
+            const isMile    = g.goal_type === 'milestone';
+            const hasDate   = g.start_date || g.due_date;
+
+            return (
+              <div key={g.id}
+                className="flex border-b border-slate-50 hover:bg-slate-50/70 transition-colors"
+                style={{ height: ROW_H, position: 'absolute', top: i * ROW_H, left: 0, right: 0 }}>
+                {/* Label */}
+                <div
+                  style={{ width: LABEL_W, flexShrink: 0, paddingLeft: 8 + depth * 18 }}
+                  className="flex items-center gap-1.5 border-r border-slate-100 pr-2 overflow-hidden bg-white">
+                  <button
+                    onClick={() => hasChildren && toggle(g.id)}
+                    className={`w-4 h-4 flex items-center justify-center rounded flex-shrink-0 ${
+                      hasChildren ? 'text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer' : 'cursor-default'
+                    }`}>
+                    {hasChildren
+                      ? (collapsed.has(g.id) ? <ChevronRight size={11} /> : <ChevronDown size={11} />)
+                      : <span className="w-1.5 h-1.5 rounded-full bg-slate-200 block" />}
+                  </button>
+                  <button
+                    onClick={() => onGoalClick(g.id)}
+                    className="text-xs text-slate-700 hover:text-indigo-600 truncate text-left flex-1 min-w-0 font-medium transition-colors">
+                    {g.title}
+                  </button>
+                  {g.is_private && <EyeOff size={10} className="text-slate-300 flex-shrink-0" />}
+                  <span className={`text-[9px] font-bold px-1 py-0.5 rounded flex-shrink-0 ${GOAL_TYPE_META[g.goal_type]?.cls || ''}`}>
+                    {GOAL_TYPE_META[g.goal_type]?.abbr || '?'}
+                  </span>
+                </div>
+
+                {/* Chart strip */}
+                <div className="flex-1 relative" style={{ height: ROW_H }}>
+                  {months.map((m, mi) => mi > 0 && (
+                    <div key={mi} className="absolute inset-y-0 w-px bg-slate-100" style={{ left: `${pct(m)}%` }} />
+                  ))}
+                  <div className="absolute inset-y-0 w-px bg-red-400/20" style={{ left: `${todayPct}%` }} />
+
+                  {hasDate && isMile ? (
+                    <div
+                      onClick={() => onGoalClick(g.id)}
+                      title={g.title}
+                      className="cursor-pointer hover:scale-110 transition-transform"
+                      style={{
+                        position: 'absolute',
+                        left: `${(b.sp + b.ep) / 2}%`,
+                        top: '50%',
+                        transform: 'translate(-50%, -50%) rotate(45deg)',
+                        width: 12, height: 12,
+                        backgroundColor: barColor,
+                      }}
+                    />
+                  ) : hasDate ? (
+                    <div
+                      onClick={() => onGoalClick(g.id)}
+                      title={`${g.title} — ${Math.round(progress)}%`}
+                      className="absolute rounded-sm cursor-pointer hover:brightness-110 transition-all overflow-hidden"
+                      style={{
+                        left: `${b.sp}%`,
+                        width: `${Math.max(b.ep - b.sp, 0.3)}%`,
+                        top:    depth === 0 ? '18%' : '28%',
+                        height: depth === 0 ? '64%' : '44%',
+                        backgroundColor: barColor,
+                      }}>
+                      {/* Progress fill */}
+                      <div className="absolute inset-y-0 left-0 bg-black/15 rounded-sm"
+                        style={{ width: `${progress}%` }} />
+                      {/* Label inside bar if wide enough */}
+                      {(b.ep - b.sp) > 12 && (
+                        <div className="absolute inset-0 flex items-center px-1.5">
+                          <span className="text-white text-[9px] font-semibold truncate drop-shadow-sm">
+                            {g.title}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Legend */}
+        <div className="flex items-center gap-5 pt-3 mt-2 border-t border-slate-100 text-[10px] text-slate-400 px-2">
+          <div className="flex items-center gap-1.5">
+            <div className="w-4 h-0.5 bg-red-400/70 rounded" /> Today
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-8 h-3 rounded-sm overflow-hidden" style={{ background: '#94a3b8' }}>
+              <div className="h-full bg-black/15" style={{ width: '40%' }} />
+            </div>
+            Progress fill
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div style={{ width: 10, height: 10, background: '#f59e0b', transform: 'rotate(45deg)' }} />
+            Milestone
+          </div>
+          <div className="flex items-center gap-1.5">
+            <svg width="24" height="10">
+              <defs>
+                <marker id="leg-arrow" markerWidth="5" markerHeight="5" refX="4" refY="2.5" orient="auto">
+                  <path d="M0,0 L5,2.5 L0,5 Z" fill="#818cf8" />
+                </marker>
+              </defs>
+              <line x1="1" y1="5" x2="20" y2="5" stroke="#818cf8" strokeWidth="1.5" markerEnd="url(#leg-arrow)" />
+            </svg>
+            Blocks
+          </div>
+          <div className="flex items-center gap-1.5">
+            <svg width="24" height="10">
+              <line x1="1" y1="5" x2="20" y2="5" stroke="#818cf8" strokeWidth="1.5" strokeDasharray="4 2" />
+            </svg>
+            Relates to
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -202,7 +336,6 @@ function GoalCard({ goal, users, onClick }) {
     <div onClick={onClick}
       className="bg-white rounded-xl border border-slate-100 p-5 cursor-pointer
                  hover:border-indigo-200 hover:shadow-md transition-all group flex flex-col gap-3">
-      {/* Top row: type + status */}
       <div className="flex items-start justify-between gap-2">
         <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded flex-shrink-0 ${typeMeta.cls}`}>
           {typeMeta.label}
@@ -212,17 +345,14 @@ function GoalCard({ goal, users, onClick }) {
         </span>
       </div>
 
-      {/* Title */}
       <h3 className="text-base font-semibold text-slate-800 line-clamp-2 group-hover:text-indigo-700 transition-colors leading-snug">
         {goal.title}
         {goal.is_locked  && <Lock   size={12} className="inline ml-1.5 text-amber-500 mb-0.5" />}
         {goal.is_private && <EyeOff size={12} className="inline ml-1.5 text-slate-400 mb-0.5" />}
       </h3>
 
-      {/* Progress */}
       <ProgressBar value={progress} />
 
-      {/* Dates */}
       {goal.due_date && (
         <div className={`text-xs font-medium ${daysLeft < 0 ? 'text-red-500' : daysLeft <= 7 ? 'text-amber-500' : 'text-slate-400'}`}>
           {goal.start_date && (
@@ -237,7 +367,6 @@ function GoalCard({ goal, users, onClick }) {
         </div>
       )}
 
-      {/* Footer: owner + sub-goal/ticket counts */}
       <div className="flex items-center justify-between text-xs text-slate-400 pt-1 border-t border-slate-50">
         <div>
           {owner ? (
@@ -282,7 +411,7 @@ function RootGoalForm({ users, onSave, onCancel, isPending }) {
     <form onSubmit={e => { e.preventDefault(); if (!form.title.trim()) return; onSave(form); }}
       className="space-y-3">
       <input value={form.title} onChange={set('title')} required autoFocus
-        placeholder="Company goal title" className={cls} />
+        placeholder="Strategic goal title" className={cls} />
       <div className="grid grid-cols-2 gap-2">
         <div>
           <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Type</label>
@@ -339,6 +468,12 @@ export default function OrgGoalsPage() {
     queryFn: getOrgGoals,
   });
 
+  const { data: dependencies = [] } = useQuery({
+    queryKey: ['org-goal-deps'],
+    queryFn: getAllGoalDependencies,
+    enabled: view === 'gantt',
+  });
+
   const { data: users = [] } = useQuery({
     queryKey: ['all-users'],
     queryFn: () => client.get('/api/users').then(r => Array.isArray(r) ? r : r.users || []),
@@ -356,7 +491,7 @@ export default function OrgGoalsPage() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Target size={20} className="text-indigo-500" />
-            <h1 className="text-lg font-bold text-slate-800">Company Goals</h1>
+            <h1 className="text-lg font-bold text-slate-800">Strategic Goals</h1>
             {!isLoading && goals.length > 0 && (
               <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full font-medium">
                 {goals.length} objective{goals.length !== 1 ? 's' : ''}
@@ -364,30 +499,25 @@ export default function OrgGoalsPage() {
             )}
           </div>
           <div className="flex items-center gap-2">
-            {/* View toggle */}
             <div className="flex items-center bg-slate-100 rounded-lg p-0.5">
               <button
                 onClick={() => setView('cards')}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                  view === 'cards'
-                    ? 'bg-white text-slate-700 shadow-sm'
-                    : 'text-slate-500 hover:text-slate-700'
+                  view === 'cards' ? 'bg-white text-slate-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
                 }`}>
                 <LayoutGrid size={13} /> Cards
               </button>
               <button
-                onClick={() => setView('timeline')}
+                onClick={() => setView('gantt')}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                  view === 'timeline'
-                    ? 'bg-white text-slate-700 shadow-sm'
-                    : 'text-slate-500 hover:text-slate-700'
+                  view === 'gantt' ? 'bg-white text-slate-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
                 }`}>
-                <CalendarRange size={13} /> Timeline
+                <GanttChartSquare size={13} /> Gantt
               </button>
             </div>
             {canManage && (
               <button
-                onClick={() => { setShowForm(true); }}
+                onClick={() => setShowForm(true)}
                 className="flex items-center gap-1.5 bg-indigo-600 text-white text-sm px-3 py-1.5 rounded-lg hover:bg-indigo-500 font-medium">
                 <Plus size={14} /> New goal
               </button>
@@ -444,9 +574,10 @@ export default function OrgGoalsPage() {
             ))}
           </div>
         ) : (
-          <div className="bg-white rounded-xl border border-slate-100 p-6 overflow-x-auto">
-            <GoalTimeline
+          <div className="bg-white rounded-xl border border-slate-100 p-4">
+            <GanttChart
               goals={goals}
+              dependencies={dependencies}
               onGoalClick={(id) => navigate(`/goals/${id}`)}
             />
           </div>

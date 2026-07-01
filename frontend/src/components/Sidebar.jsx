@@ -202,7 +202,7 @@ export default function Sidebar() {
           className={({ isActive }) => `flex items-center gap-2 px-2 py-1.5 text-sm rounded-md transition-colors ${
             isActive ? 'text-white bg-indigo-600/20' : 'text-slate-300 hover:bg-slate-800 hover:text-white'
           }`}>
-          <Target size={14} className="text-indigo-400" /> Company Goals
+          <Target size={14} className="text-indigo-400" /> Strategic Goals
         </NavLink>
         <NavLink to="/my-goals"
           className={({ isActive }) => `flex items-center gap-2 px-2 py-1.5 text-sm rounded-md transition-colors mb-2 ${

@@ -1,6 +1,6 @@
 # Canopy
 
-A self-hosted project management and ticketing system. Supports multiple projects with role-based access, Kanban boards with configurable workflows, sprint planning, goals & OKRs, reporting, time tracking, automations, and a full REST API.
+A self-hosted project management and ticketing system. Supports multiple projects with role-based access, Kanban boards with configurable workflows, sprint planning, hierarchical goals & OKRs with Gantt timelines, reporting, time tracking, automations, in-app notifications, and a full REST API.
 
 ---
 
@@ -21,7 +21,7 @@ A self-hosted project management and ticketing system. Supports multiple project
 **Requirements:** Docker and Docker Compose.
 
 ```bash
-git clone <repo-url> && cd ticketing
+git clone <repo-url> && cd canopy
 cp .env .env.local          # edit secrets before running in production
 docker compose up --build
 ```
@@ -147,17 +147,12 @@ The schema is versioned as numbered SQL files in `backend/src/migrations/`. On e
 
 1. Create a new file in `backend/src/migrations/` with the next number:
    ```
-   backend/src/migrations/002_add_reactions.sql
+   backend/src/migrations/005_my_change.sql
    ```
 
 2. Write the change using standard SQL. Keep it idempotent where possible (`IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`):
    ```sql
-   CREATE TABLE IF NOT EXISTS ticket_reactions (
-     ticket_id UUID NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
-     user_id   UUID NOT NULL REFERENCES users(id)   ON DELETE CASCADE,
-     emoji     VARCHAR(10) NOT NULL,
-     PRIMARY KEY (ticket_id, user_id, emoji)
-   );
+   ALTER TABLE tickets ADD COLUMN IF NOT EXISTS external_id VARCHAR(100);
    ```
 
 3. Restart the backend — the migration runs automatically:
@@ -183,7 +178,7 @@ Multiple projects in one instance. Each project has its own members, roles, tick
 Four project roles (viewer, member, admin, owner) plus a system-level admin role. Teams can be assigned project roles to simplify bulk access management.
 
 ### Kanban Board
-Drag-and-drop board with status columns. Columns are driven by the project's configurable workflow statuses — create, rename, recolor, and reorder them under **Project Settings → Workflow**. Statuses have a category (To Do / In Progress / Done) that drives burndown charts and cycle time calculations.
+Drag-and-drop board with status columns. Columns are driven by the project's configurable workflow statuses — create, rename, recolor, and reorder them under **Project Settings → Workflow**. Statuses have a category (To Do / In Progress / Done) that drives burndown charts and cycle time calculations. Optional WIP limits per status warn when a column is over capacity.
 
 ### Workflow Enforcement
 Optional enforcement of allowed status transitions per project. When enabled, tickets can only move to statuses explicitly permitted by the workflow configuration.
@@ -193,6 +188,9 @@ Create sprints with optional start/end dates and goals. Drag tickets from the ba
 
 ### Ticket Hierarchy
 Tickets have types: **Epic**, **Story**, **Task**, **Bug**. Epics contain sub-tickets. Tasks can have parent tickets. Child counts and epic progress are surfaced everywhere.
+
+### Ticket Dependencies
+Mark tickets as blocking or blocked by other tickets. Dependency types: `blocks`, `relates_to`, `duplicates`. Blocked tickets are visually flagged in the ticket panel.
 
 ### Custom Fields
 Define typed fields per project (text, number, select, date, URL). Fields appear in the ticket panel and can be filtered in the advanced filter builder.
@@ -207,21 +205,46 @@ Log hours against tickets. Time logs are per-user and per-day (max 24 hours/day)
 Upload files to tickets (25 MB limit). Files are stored in MinIO and served via presigned URLs.
 
 ### Comments & Mentions
-Threaded comments on tickets. Use `@username` syntax to mention teammates — mentioned users receive email notifications if SMTP is configured.
+Threaded comments on tickets. Use `@username` syntax to mention teammates — mentioned users receive in-app notifications and email notifications if SMTP is configured.
+
+### In-App Notifications
+A notification bell in the sidebar tracks mentions and assignments in real time. Notifications can be individually marked read, marked unread, or deleted. Unread count badge updates every 60 seconds.
+
+### Activity Log
+Every status change, assignment, priority change, and comment on a ticket is recorded to an activity log, visible in the ticket panel's history view.
 
 ### Advanced Filtering & Search
-Filter tickets by status, type, priority, assignee, sprint, label, due date, story points, and custom fields. The **Filter Builder** supports nested AND/OR groups with parentheses for complex logic. Save and reuse filter combinations. Full-text search over ticket titles and descriptions uses a GIN index for performance.
+Filter tickets by status, type, priority, assignee, sprint, label, due date, story points, and custom fields. The **Filter Builder** supports nested AND/OR groups with parentheses for complex logic. Save and reuse filter combinations. Full-text global search over ticket titles, descriptions, and comments uses a GIN index for performance.
 
 ### Goals & OKRs
-Two levels of goals: **Project goals** (scoped to one project) and **Org goals** (span all projects). Goals form a hierarchy; parent progress rolls up from children automatically. Progress can be tracked by:
-- **Sub-goal completion** — percent of child goals completed
-- **Ticket completion %** — ratio of done tickets to total linked tickets
-- **Story points** — points burned vs. target
-- **Ticket count** — tickets done vs. target
-- **Currency** — numeric value toward a dollar target
-- **Manual** — manually entered percentage
 
-Goal types: Objective, Key Result, Milestone, Initiative, Task. Status (on track / at risk / behind) is computed from progress vs. elapsed time and bubbles up from children.
+Two levels of goals:
+
+**Project goals** are scoped to a single project and appear in that project's Goals page.
+
+**Company goals** span all projects. Only company-level (root) goals appear on the Strategic Goals landing page; sub-goals are only accessible by drilling into a parent goal. The detail page shows breadcrumb navigation, computed progress, linked tickets, and a timeline.
+
+Goals form a hierarchy via `parent_id`. Progress rolls up automatically:
+1. If the goal is marked **completed** → 100%
+2. If tickets are directly linked → ratio of done tickets to total
+3. If sub-goals exist (and no direct tickets) → weighted average of child progress
+4. If a numeric target/current is set → `current / target × 100`
+5. Otherwise → 0%
+
+Status (`on_track` / `at_risk` / `behind`) is derived from progress vs. elapsed time between `start_date` and `due_date`, and bubbles up from children. Setting status manually overrides the computation.
+
+**Views:** Cards view shows root goals at a glance. Gantt view flattens the entire goal tree into a scrollable timeline with collapsible groups and SVG dependency arrows.
+
+**Goal dependencies** express which goals must complete before others can start (`blocks`) or are simply related (`relates_to`). Dependency arrows are rendered in the Gantt chart.
+
+**Goal privacy:** Mark any goal as private. Private goals (and their entire sub-tree) are only visible to system admins, the goal owner, and explicitly added members. All other users see the goal filtered out of every list and tree.
+
+**Goal locking:** Lock a goal to prevent edits or deletion by anyone without the `org_goals.lock` system permission.
+
+Goal types: Objective, Key Result, Milestone, Initiative. Milestones render as diamonds on the Gantt.
+
+### Roadmap
+Visual roadmap view per project showing epics and their date ranges.
 
 ### Reports
 Per-project dashboards with four panels:
@@ -328,6 +351,18 @@ Authorization: Bearer <token>
 
 ---
 
+### Ticket Dependencies
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/tickets/:ticketId/dependencies` | List blockers and blocked tickets |
+| `POST` | `/api/tickets/:ticketId/dependencies` | Add dependency. Body: `{ blocker_id, blocked_id, type }` |
+| `DELETE` | `/api/tickets/:ticketId/dependencies/:id` | Remove dependency |
+
+Dependency types: `blocks`, `relates_to`, `duplicates`.
+
+---
+
 ### Sprints
 
 | Method | Path | Description |
@@ -347,12 +382,12 @@ Authorization: Bearer <token>
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/api/projects/:projectId/statuses` | List project statuses in order |
-| `POST` | `/api/projects/:projectId/statuses` | Create status. Body: `{ name, color?, category? }` |
-| `PATCH` | `/api/projects/:projectId/statuses/:statusId` | Update name/color/category |
+| `POST` | `/api/projects/:projectId/statuses` | Create status. Body: `{ name, color?, category?, wip_limit? }` |
+| `PATCH` | `/api/projects/:projectId/statuses/:statusId` | Update name/color/category/wip_limit |
 | `POST` | `/api/projects/:projectId/statuses/reorder` | Reorder. Body: `{ order: [uuid] }` |
 | `DELETE` | `/api/projects/:projectId/statuses/:statusId` | Delete (fails if tickets use it) |
 
-Status categories: `todo`, `in_progress`, `done`. The `done` category drives `completed_at` timestamps and burndown.
+Status categories: `todo`, `in_progress`, `done`. The `done` category drives `completed_at` timestamps and burndown. `wip_limit` (integer, nullable) warns when the column exceeds capacity.
 
 ---
 
@@ -409,9 +444,29 @@ Field types: `text`, `number`, `select`, `date`, `url`.
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/api/comments?ticketId=:id` | List comments for a ticket |
-| `POST` | `/api/comments` | Create. Body: `{ ticket_id, content }`. `@username` triggers email |
+| `POST` | `/api/comments` | Create. Body: `{ ticket_id, content }`. `@username` triggers notification |
 | `PATCH` | `/api/comments/:id` | Edit |
 | `DELETE` | `/api/comments/:id` | Delete |
+
+---
+
+### Notifications
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/notifications` | List recent notifications. Query: `limit` (default 30, max 100) |
+| `GET` | `/api/notifications/unread-count` | Returns `{ count }` |
+| `PATCH` | `/api/notifications/mark-read` | Mark read. Body: `{ ids: [uuid] }` or `{ all: true }` |
+| `PATCH` | `/api/notifications/mark-unread` | Mark unread. Body: `{ ids: [uuid] }` |
+| `DELETE` | `/api/notifications/:id` | Delete a notification |
+
+---
+
+### Search
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/search?q=:query` | Full-text search across tickets, comments, and goals. Returns grouped results |
 
 ---
 
@@ -448,23 +503,53 @@ Field types: `text`, `number`, `select`, `date`, `url`.
 | `POST` | `/api/projects/:projectId/goals/:goalId/sub-goals` | Add child goal |
 | `POST` | `/api/projects/:projectId/goals/:goalId/tickets` | Link ticket |
 | `DELETE` | `/api/projects/:projectId/goals/:goalId/tickets/:ticketId` | Unlink ticket |
-| `POST` | `/api/projects/:projectId/goals/:goalId/epics` | Link epic |
-| `DELETE` | `/api/projects/:projectId/goals/:goalId/epics/:epicId` | Unlink epic |
 
-**Org goals** span all projects:
+**Company (org) goals** span all projects. Privacy is enforced server-side — private goals are filtered out for users without access:
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/goals` | Full org goal tree |
+| `GET` | `/api/goals` | Full org goal tree (privacy-filtered) |
 | `POST` | `/api/goals` | Create root org goal |
-| `GET` | `/api/goals/:id` | Goal with children and linked tickets |
+| `GET` | `/api/goals/all-dependencies` | All goal dependencies (used by Gantt) |
+| `GET` | `/api/goals/search?q=` | Search goal titles |
+| `GET` | `/api/goals/:id` | Goal with ancestors, children, and linked tickets |
+| `PATCH` | `/api/goals/:id` | Update goal fields |
+| `DELETE` | `/api/goals/:id` | Delete goal and all sub-goals |
 | `POST` | `/api/goals/:id/sub-goals` | Create child goal |
-| `PATCH` | `/api/goals/:id` | Update |
-| `DELETE` | `/api/goals/:id` | Delete |
 | `POST` | `/api/goals/:id/tickets` | Link ticket |
 | `DELETE` | `/api/goals/:id/tickets/:ticketId` | Unlink ticket |
+| `GET` | `/api/goals/:id/ticket-candidates?q=` | Search linkable tickets |
+| `GET` | `/api/goals/:id/dependencies` | Returns `{ blockedBy: [...], blocks: [...] }` |
+| `POST` | `/api/goals/:id/dependencies` | Add dependency. Body: `{ blocker_id, blocked_id, type }` |
+| `DELETE` | `/api/goals/:id/dependencies/:depId` | Remove dependency |
+| `GET` | `/api/goals/:id/members` | List users with explicit access to a private goal |
+| `POST` | `/api/goals/:id/members` | Grant access. Body: `{ user_id }` |
+| `DELETE` | `/api/goals/:id/members/:userId` | Revoke access |
+| `PATCH` | `/api/goals/:id/lock` | Toggle lock. Body: `{ is_locked: bool }` (requires `org_goals.lock`) |
 
-Goal body fields: `title`, `description`, `goal_type` (objective/key_result/milestone/initiative/task), `metric_type` (subgoals/completion/points/count/manual/currency), `target_value`, `current_value`, `unit`, `weight`, `status`, `owner_id`, `start_date`, `due_date`.
+**Goal body fields:**
+
+```json
+{
+  "title": "string",
+  "description": "string",
+  "goal_type": "objective | key_result | milestone | initiative",
+  "metric_type": "completion | points | count | manual | currency",
+  "target_value": "number | null",
+  "current_value": "number | null",
+  "unit": "string",
+  "weight": "number (default 1.0)",
+  "status": "not_started | on_track | at_risk | behind | completed | cancelled",
+  "owner_id": "uuid | null",
+  "start_date": "YYYY-MM-DD | null",
+  "due_date": "YYYY-MM-DD | null",
+  "project_id": "uuid | null",
+  "is_private": "boolean",
+  "is_locked": "boolean"
+}
+```
+
+Goal dependency types: `blocks`, `relates_to`.
 
 ---
 
@@ -568,3 +653,13 @@ GET /health  →  { "status": "ok" }
 | `owner` | Full control including project deletion; can assign owner role |
 
 Roles can be granted to individual users or to teams. A user's effective role is the highest of their individual and team-based roles.
+
+### System permissions (org goals)
+
+| Permission | Description |
+|------------|-------------|
+| `org_goals.write` | Create, edit, and delete strategic goals; manage goal members and dependencies |
+| `org_goals.delete` | Delete strategic goals (subset of write) |
+| `org_goals.lock` | Lock and unlock strategic goals; edit locked goals |
+
+System admins bypass all permission checks. Users with `org_goals.write` bypass goal privacy filters (they see all goals regardless of `is_private`).

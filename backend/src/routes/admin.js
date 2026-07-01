@@ -9,9 +9,9 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // Definitions of all grantable system permissions
 const SYSTEM_PERMISSION_DEFS = [
-  { key: 'org_goals.write',  label: 'Create & edit company goals', category: 'Company Goals' },
-  { key: 'org_goals.delete', label: 'Delete company goals',         category: 'Company Goals' },
-  { key: 'org_goals.lock',   label: 'Lock / unlock company goals',  category: 'Company Goals' },
+  { key: 'org_goals.write',  label: 'Create & edit strategic goals', category: 'Strategic Goals' },
+  { key: 'org_goals.delete', label: 'Delete strategic goals',         category: 'Strategic Goals' },
+  { key: 'org_goals.lock',   label: 'Lock / unlock strategic goals',  category: 'Strategic Goals' },
 ];
 
 router.use(requireAuth, requireAdmin);
