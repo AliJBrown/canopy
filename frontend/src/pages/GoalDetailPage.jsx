@@ -3,15 +3,16 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Plus, Target, X, Search, Lock, Unlock, Trash2, Pencil, EyeOff,
-  ChevronRight, CalendarRange, Link2, Layers, UserPlus, GitMerge,
+  ChevronRight, CalendarRange, Link2, Layers, UserPlus, GitMerge, Users,
 } from 'lucide-react';
 import {
   getOrgGoal, createSubGoal, updateOrgGoal, deleteOrgGoal, lockOrgGoal,
   getGoalTicketCandidates, linkTicketToOrgGoal, unlinkTicketFromOrgGoal,
   getGoalMembers, addGoalMember, removeGoalMember,
+  getGoalAssignees, addGoalAssignee, removeGoalAssignee,
   getGoalDependencies, addGoalDependency, removeGoalDependency, searchGoals,
+  getGoalProjects,
 } from '../api/orgGoals';
-import { getProjects } from '../api/projects';
 import { Avatar, TypeBadge, StatusBadge } from '../components/Badge';
 import { useApp } from '../context/AppContext';
 import client from '../api/client';
@@ -179,11 +180,11 @@ function GoalTimeline({ goals, onGoalClick }) {
 
 // ── Child goal card ─────────────────────────────────────────────────────────
 
-function GoalCard({ goal, users, onClick }) {
+function GoalCard({ goal, onClick }) {
   const statusKey  = goal.auto_status || goal.status;
   const statusMeta = STATUS_META[statusKey] || STATUS_META.not_started;
   const typeMeta   = GOAL_TYPE_META[goal.goal_type] || GOAL_TYPE_META.objective;
-  const owner      = users.find(u => u.id === goal.owner_id);
+  const assignees  = Array.isArray(goal.assignees) ? goal.assignees : [];
   const progress   = goal.progress || 0;
   const childCount = (goal.children || []).length;
   const ticketCount = parseInt(goal.linked_count) || 0;
@@ -213,6 +214,10 @@ function GoalCard({ goal, users, onClick }) {
 
       <ProgressBar value={progress} />
 
+      {goal.description && (
+        <p className="text-xs text-slate-400 line-clamp-2 leading-relaxed">{goal.description}</p>
+      )}
+
       {goal.due_date && (
         <div className={`text-[11px] font-medium ${daysLeft < 0 ? 'text-red-500' : daysLeft <= 7 ? 'text-amber-500' : 'text-slate-400'}`}>
           {goal.start_date && (
@@ -234,12 +239,17 @@ function GoalCard({ goal, users, onClick }) {
       )}
 
       <div className="flex items-center justify-between text-xs text-slate-400 pt-1 border-t border-slate-50">
-        {owner ? (
-          <div className="flex items-center gap-1.5">
-            <Avatar user={owner} size="xs" />
-            <span>{owner.name}</span>
-          </div>
-        ) : <span className="text-slate-300">No owner</span>}
+        <div className="flex items-center gap-1.5 min-w-0">
+          {assignees.length > 0 ? (
+            <>
+              {assignees.slice(0, 3).map(a => <Avatar key={a.id} user={a} size="xs" />)}
+              <span className="truncate max-w-[90px]">{assignees[0].name}</span>
+              {assignees.length > 1 && <span className="flex-shrink-0">+{assignees.length - 1}</span>}
+            </>
+          ) : (
+            <span className="text-slate-300">Unassigned</span>
+          )}
+        </div>
         <div className="flex items-center gap-2">
           {childCount > 0 && (
             <span className="bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-medium text-[10px]">
@@ -491,6 +501,93 @@ function GoalMembersSection({ goalId, users }) {
             onClick={() => addMut.mutate(addUserId)}
             className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-500 disabled:opacity-40 font-medium transition-colors flex items-center gap-1">
             <UserPlus size={12} /> Add
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Goal assignees section (shown in hero) ──────────────────────────────────
+
+function GoalAssigneesSection({ goalId, users, canEdit }) {
+  const qc = useQueryClient();
+  const [adding, setAdding] = useState(false);
+  const [selectedUid, setSelectedUid] = useState('');
+
+  const { data: assignees = [] } = useQuery({
+    queryKey: ['goal-assignees', goalId],
+    queryFn: () => getGoalAssignees(goalId),
+  });
+
+  const addMut = useMutation({
+    mutationFn: (uid) => addGoalAssignee(goalId, uid),
+    onSuccess: () => {
+      qc.invalidateQueries(['goal-assignees', goalId]);
+      qc.invalidateQueries(['org-goal', goalId]);
+      qc.invalidateQueries(['org-goals']);
+      setSelectedUid('');
+      setAdding(false);
+    },
+  });
+
+  const removeMut = useMutation({
+    mutationFn: (uid) => removeGoalAssignee(goalId, uid),
+    onSuccess: () => {
+      qc.invalidateQueries(['goal-assignees', goalId]);
+      qc.invalidateQueries(['org-goal', goalId]);
+      qc.invalidateQueries(['org-goals']);
+    },
+  });
+
+  const assigneeIds = new Set(assignees.map(a => a.id));
+  const available   = users.filter(u => !assigneeIds.has(u.id));
+
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      {assignees.map(a => (
+        <div key={a.id} className="relative group/av">
+          <Avatar user={a} size="sm" />
+          {canEdit && (
+            <button
+              onClick={() => removeMut.mutate(a.id)}
+              title={`Remove ${a.name}`}
+              className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-red-400 text-white rounded-full hidden group-hover/av:flex items-center justify-center">
+              <X size={8} />
+            </button>
+          )}
+        </div>
+      ))}
+      {assignees.length === 0 && !adding && (
+        <span className="text-xs text-slate-400 italic">No assignees</span>
+      )}
+      {canEdit && !adding && (
+        <button
+          onClick={() => setAdding(true)}
+          className="w-7 h-7 rounded-full border-2 border-dashed border-slate-200 text-slate-400 hover:border-indigo-400 hover:text-indigo-600 flex items-center justify-center transition-colors"
+          title="Add assignee">
+          <UserPlus size={12} />
+        </button>
+      )}
+      {adding && (
+        <div className="flex items-center gap-2">
+          <select
+            value={selectedUid}
+            onChange={e => setSelectedUid(e.target.value)}
+            autoFocus
+            className="text-sm border border-slate-200 rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-300 bg-white">
+            <option value="">Pick a person…</option>
+            {available.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+          </select>
+          <button
+            onClick={() => selectedUid && addMut.mutate(selectedUid)}
+            disabled={!selectedUid || addMut.isPending}
+            className="text-xs text-white bg-indigo-600 px-2 py-1 rounded-lg font-medium disabled:opacity-40">
+            Add
+          </button>
+          <button onClick={() => { setAdding(false); setSelectedUid(''); }}
+            className="text-xs text-slate-400 hover:text-slate-600">
+            Cancel
           </button>
         </div>
       )}
@@ -890,6 +987,7 @@ export default function GoalDetailPage() {
   const [editingTitle, setEditing]    = useState(false);
   const [titleDraft, setTitleDraft]   = useState('');
   const [editOpen, setEditOpen]       = useState(false);
+  const [descDraft, setDescDraft]     = useState(null);
 
   const { data: goal, isLoading } = useQuery({
     queryKey: ['org-goal', goalId],
@@ -897,7 +995,7 @@ export default function GoalDetailPage() {
     enabled: !!goalId,
   });
 
-  const { data: projects = [] } = useQuery({ queryKey: ['projects'], queryFn: getProjects });
+  const { data: projects = [] } = useQuery({ queryKey: ['goal-projects'], queryFn: getGoalProjects });
 
   const { data: users = [] } = useQuery({
     queryKey: ['all-users'],
@@ -953,6 +1051,11 @@ export default function GoalDetailPage() {
     },
   });
 
+  const updateDesc = useMutation({
+    mutationFn: (description) => updateOrgGoal(goalId, { description }),
+    onSuccess: () => qc.invalidateQueries(['org-goal', goalId]),
+  });
+
   const toggleLock = useMutation({
     mutationFn: (is_locked) => lockOrgGoal(goalId, is_locked),
     onSuccess: () => {
@@ -997,7 +1100,6 @@ export default function GoalDetailPage() {
   const statusKey  = goal.auto_status || goal.status;
   const statusMeta = STATUS_META[statusKey] || STATUS_META.not_started;
   const canEdit    = canManage && (!goal.is_locked || canLock);
-  const owner      = users.find(u => u.id === goal.owner_id);
   const daysLeft   = goal.due_date
     ? Math.ceil((new Date(goal.due_date) - new Date()) / (1000 * 60 * 60 * 24))
     : null;
@@ -1070,13 +1172,6 @@ export default function GoalDetailPage() {
                 </span>
               )}
 
-              {owner && (
-                <div className="flex items-center gap-1.5 text-sm text-slate-500">
-                  <Avatar user={owner} size="xs" />
-                  <span>{owner.name}</span>
-                </div>
-              )}
-
               {goal.start_date && goal.due_date && (
                 <span className="text-sm text-slate-400">
                   {new Date(String(goal.start_date).slice(0, 10) + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
@@ -1111,6 +1206,51 @@ export default function GoalDetailPage() {
                   {ticketsDone}/{ticketsTotal} tickets done
                 </span>
               )}
+            </div>
+
+            {/* Assignees */}
+            <div className="mt-4 flex items-center gap-3">
+              <span className="text-xs text-slate-400 font-medium flex-shrink-0 flex items-center gap-1">
+                <Users size={12} /> Assignees
+              </span>
+              <GoalAssigneesSection goalId={goalId} users={users} canEdit={canEdit} />
+            </div>
+
+            {/* Description / Notes */}
+            <div className="mt-4 max-w-2xl">
+              <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
+                Description &amp; Notes
+              </div>
+              {descDraft !== null ? (
+                <textarea
+                  autoFocus
+                  value={descDraft}
+                  onChange={e => setDescDraft(e.target.value)}
+                  onBlur={() => {
+                    const trimmed = descDraft.trim();
+                    if (trimmed !== (goal.description || '').trim()) updateDesc.mutate(trimmed);
+                    setDescDraft(null);
+                  }}
+                  onKeyDown={e => e.key === 'Escape' && setDescDraft(null)}
+                  rows={7}
+                  placeholder="Add a description, context, or notes…"
+                  className="w-full text-sm text-slate-700 border border-indigo-300 rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-indigo-200 resize-y min-h-[120px]"
+                />
+              ) : goal.description ? (
+                <div
+                  onClick={() => canEdit && setDescDraft(goal.description)}
+                  className={`text-sm leading-relaxed text-slate-600 whitespace-pre-wrap bg-slate-50 rounded-lg px-3 py-2.5 border border-slate-100 ${
+                    canEdit ? 'cursor-text hover:border-indigo-200 hover:bg-white transition-colors' : ''
+                  }`}>
+                  {goal.description}
+                </div>
+              ) : canEdit ? (
+                <div
+                  onClick={() => setDescDraft('')}
+                  className="text-sm text-slate-400 italic bg-slate-50 rounded-lg px-3 py-2.5 border border-dashed border-slate-200 cursor-text hover:border-indigo-300 hover:bg-white transition-colors">
+                  Add a description or notes…
+                </div>
+              ) : null}
             </div>
 
             <div className="mt-4 max-w-xl">
@@ -1178,7 +1318,6 @@ export default function GoalDetailPage() {
                   <GoalCard
                     key={child.id}
                     goal={child}
-                    users={users}
                     onClick={() => navigate(`/goals/${child.id}`)}
                   />
                 ))}

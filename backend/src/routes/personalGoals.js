@@ -107,7 +107,7 @@ router.get('/', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// GET /assigned — goals from projects/org where this user is the owner but didn't create as personal
+// GET /assigned — strategic/project goals where this user is in goal_assignees
 router.get('/assigned', async (req, res, next) => {
   try {
     const { rows } = await query(`
@@ -118,10 +118,11 @@ router.get('/assigned', async (req, res, next) => {
         COUNT(DISTINCT tgl.ticket_id)::int AS linked_count,
         COUNT(DISTINCT tgl.ticket_id) FILTER (WHERE t.status = 'done')::int AS completed_count
       FROM project_goals g
+      JOIN goal_assignees ga ON ga.goal_id = g.id
       LEFT JOIN projects p ON p.id = g.project_id
       LEFT JOIN ticket_goal_links tgl ON tgl.goal_id = g.id
       LEFT JOIN tickets t ON t.id = tgl.ticket_id
-      WHERE g.owner_id = $1
+      WHERE ga.user_id = $1
         AND (g.user_id IS NULL OR g.user_id != $1)
       GROUP BY g.id, p.id, p.name, p.key
       ORDER BY g.position, g.created_at

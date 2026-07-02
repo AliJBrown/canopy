@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Target, Plus, ChevronRight, ChevronDown, Trash2, X,
@@ -744,6 +745,7 @@ function RootGoalForm({ onSave, onCancel, isPending }) {
 
 export default function MyGoalsPage() {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const { user } = useApp();
   const [showForm, setShowForm] = useState(false);
   const [openGoalId, setOpenGoalId] = useState(null);
@@ -828,7 +830,7 @@ export default function MyGoalsPage() {
           )}
 
           {assignedGoals.length > 0 && (
-            <AssignedGoalsSection goals={assignedGoals} onOpen={setOpenGoalId} />
+            <AssignedGoalsSection goals={assignedGoals} onOpen={(id) => navigate(`/goals/${id}`)} />
           )}
 
           {isLoading ? (

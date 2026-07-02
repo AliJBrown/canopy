@@ -110,7 +110,13 @@ async function computeOrgTree(userId, bypassPrivacy) {
         THEN json_build_object('id', p.id, 'name', p.name, 'key', p.key)
         ELSE NULL END AS project,
       COUNT(DISTINCT tgl.ticket_id)::int AS linked_count,
-      COUNT(DISTINCT tgl.ticket_id) FILTER (WHERE tk.status = 'done')::int AS completed_count
+      COUNT(DISTINCT tgl.ticket_id) FILTER (WHERE tk.status = 'done')::int AS completed_count,
+      (SELECT COALESCE(json_agg(
+          json_build_object('id', ua.id, 'name', ua.name, 'color', ua.color, 'avatar_url', ua.avatar_url)
+          ORDER BY ua.name
+        ), '[]'::json)
+        FROM goal_assignees ga2 JOIN users ua ON ua.id = ga2.user_id
+        WHERE ga2.goal_id = g.id) AS assignees
     FROM tree
     JOIN project_goals g ON g.id = tree.id
     LEFT JOIN users u ON u.id = g.owner_id
@@ -192,7 +198,13 @@ async function computeGoalSubtree(goalId) {
         THEN json_build_object('id', p.id, 'name', p.name, 'key', p.key)
         ELSE NULL END AS project,
       COUNT(DISTINCT tgl.ticket_id)::int AS linked_count,
-      COUNT(DISTINCT tgl.ticket_id) FILTER (WHERE tk.status = 'done')::int AS completed_count
+      COUNT(DISTINCT tgl.ticket_id) FILTER (WHERE tk.status = 'done')::int AS completed_count,
+      (SELECT COALESCE(json_agg(
+          json_build_object('id', ua.id, 'name', ua.name, 'color', ua.color, 'avatar_url', ua.avatar_url)
+          ORDER BY ua.name
+        ), '[]'::json)
+        FROM goal_assignees ga2 JOIN users ua ON ua.id = ga2.user_id
+        WHERE ga2.goal_id = g.id) AS assignees
     FROM sub
     JOIN project_goals g ON g.id = sub.id
     LEFT JOIN users u ON u.id = g.owner_id
@@ -219,6 +231,18 @@ async function computeGoalSubtree(goalId) {
 
   return byId[goalId];
 }
+
+// GET /projects — all projects visible to goal writers (regardless of project membership)
+router.get('/projects', async (req, res, next) => {
+  try {
+    if (req.user.role !== 'admin' && !(await checkSystemPermission(req.user, 'org_goals.write')))
+      return res.status(403).json({ error: 'Permission denied' });
+    const { rows } = await query(
+      'SELECT id, name, key FROM projects ORDER BY name ASC'
+    );
+    res.json(rows);
+  } catch (err) { next(err); }
+});
 
 // GET /all-dependencies — all goal dependencies across the org (for Gantt arrows)
 router.get('/all-dependencies', async (req, res, next) => {
@@ -315,6 +339,14 @@ router.get('/:id', async (req, res, next) => {
       ORDER BY t.created_at DESC
     `, [req.params.id]);
 
+    const { rows: assignees } = await query(`
+      SELECT u.id, u.name, u.email, u.color, u.avatar_url
+      FROM goal_assignees ga
+      JOIN users u ON u.id = ga.user_id
+      WHERE ga.goal_id = $1
+      ORDER BY u.name
+    `, [req.params.id]);
+
     res.json({
       ...goal,
       // Merge computed values from the recursive subtree calculation
@@ -325,6 +357,7 @@ router.get('/:id', async (req, res, next) => {
       ancestors,
       children,
       tickets,
+      assignees,
     });
   } catch (err) { next(err); }
 });
@@ -491,6 +524,48 @@ router.delete('/:id/members/:userId', async (req, res, next) => {
       return res.status(403).json({ error: 'You do not have permission to modify strategic goals' });
     await query(
       'DELETE FROM goal_members WHERE goal_id = $1 AND user_id = $2',
+      [req.params.id, req.params.userId]
+    );
+    res.status(204).send();
+  } catch (err) { next(err); }
+});
+
+// GET /:id/assignees — list users assigned to this goal
+router.get('/:id/assignees', async (req, res, next) => {
+  try {
+    const { rows } = await query(`
+      SELECT u.id, u.name, u.email, u.color, u.avatar_url
+      FROM goal_assignees ga
+      JOIN users u ON u.id = ga.user_id
+      WHERE ga.goal_id = $1
+      ORDER BY u.name
+    `, [req.params.id]);
+    res.json(rows);
+  } catch (err) { next(err); }
+});
+
+// POST /:id/assignees — assign a user to this goal
+router.post('/:id/assignees', async (req, res, next) => {
+  try {
+    if (!(await checkSystemPermission(req.user, 'org_goals.write')))
+      return res.status(403).json({ error: 'You do not have permission to modify strategic goals' });
+    const { user_id } = req.body;
+    if (!user_id) return res.status(400).json({ error: 'user_id required' });
+    await query(
+      'INSERT INTO goal_assignees (goal_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+      [req.params.id, user_id]
+    );
+    res.status(201).json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// DELETE /:id/assignees/:userId — remove a user from this goal
+router.delete('/:id/assignees/:userId', async (req, res, next) => {
+  try {
+    if (!(await checkSystemPermission(req.user, 'org_goals.write')))
+      return res.status(403).json({ error: 'You do not have permission to modify strategic goals' });
+    await query(
+      'DELETE FROM goal_assignees WHERE goal_id = $1 AND user_id = $2',
       [req.params.id, req.params.userId]
     );
     res.status(204).send();

@@ -237,9 +237,15 @@ Status (`on_track` / `at_risk` / `behind`) is derived from progress vs. elapsed 
 
 **Goal dependencies** express which goals must complete before others can start (`blocks`) or are simply related (`relates_to`). Dependency arrows are rendered in the Gantt chart.
 
-**Goal privacy:** Mark any goal as private. Private goals (and their entire sub-tree) are only visible to system admins, the goal owner, and explicitly added members. All other users see the goal filtered out of every list and tree.
+**Goal privacy:** Mark any goal as private. Private goals (and their entire sub-tree) are only visible to system admins, the goal owner, and explicitly added members. All other users see the goal filtered out of every list and tree. When creating a sub-goal under a private parent, the sub-goal inherits `is_private = true` and the parent's member list automatically — this can be toggled off individually after creation.
 
 **Goal locking:** Lock a goal to prevent edits or deletion by anyone without the `org_goals.lock` system permission.
+
+**Multiple assignees:** Goals support multiple assignees via a `goal_assignees` junction table. Assignee avatars and names appear on goal cards and in the detail hero. Assignees are managed independently of the `owner_id` field (which remains as a "lead" concept in goal forms).
+
+**Description & Notes:** Each goal has a freeform description field edited inline on the goal detail page. The field is rendered in a prominent styled box and is suitable for both short descriptions and longer running notes.
+
+**Search and filtering:** The Strategic Goals page includes a search bar and status/type filter dropdowns. Filtering flattens the full goal tree so matching goals at any depth are shown together.
 
 Goal types: Objective, Key Result, Milestone, Initiative. Milestones render as diamonds on the Gantt.
 
@@ -510,15 +516,19 @@ Field types: `text`, `number`, `select`, `date`, `url`.
 |--------|------|-------------|
 | `GET` | `/api/goals` | Full org goal tree (privacy-filtered) |
 | `POST` | `/api/goals` | Create root org goal |
+| `GET` | `/api/goals/projects` | List all projects (requires `org_goals.write`; bypasses membership filter) |
 | `GET` | `/api/goals/all-dependencies` | All goal dependencies (used by Gantt) |
 | `GET` | `/api/goals/search?q=` | Search goal titles |
-| `GET` | `/api/goals/:id` | Goal with ancestors, children, and linked tickets |
+| `GET` | `/api/goals/:id` | Goal with ancestors, children, linked tickets, and assignees |
 | `PATCH` | `/api/goals/:id` | Update goal fields |
 | `DELETE` | `/api/goals/:id` | Delete goal and all sub-goals |
-| `POST` | `/api/goals/:id/sub-goals` | Create child goal |
+| `POST` | `/api/goals/:id/sub-goals` | Create child goal (inherits privacy + members if parent is private) |
 | `POST` | `/api/goals/:id/tickets` | Link ticket |
 | `DELETE` | `/api/goals/:id/tickets/:ticketId` | Unlink ticket |
 | `GET` | `/api/goals/:id/ticket-candidates?q=` | Search linkable tickets |
+| `GET` | `/api/goals/:id/assignees` | List assignees |
+| `POST` | `/api/goals/:id/assignees` | Add assignee. Body: `{ user_id }` |
+| `DELETE` | `/api/goals/:id/assignees/:userId` | Remove assignee |
 | `GET` | `/api/goals/:id/dependencies` | Returns `{ blockedBy: [...], blocks: [...] }` |
 | `POST` | `/api/goals/:id/dependencies` | Add dependency. Body: `{ blocker_id, blocked_id, type }` |
 | `DELETE` | `/api/goals/:id/dependencies/:depId` | Remove dependency |
@@ -526,6 +536,12 @@ Field types: `text`, `number`, `select`, `date`, `url`.
 | `POST` | `/api/goals/:id/members` | Grant access. Body: `{ user_id }` |
 | `DELETE` | `/api/goals/:id/members/:userId` | Revoke access |
 | `PATCH` | `/api/goals/:id/lock` | Toggle lock. Body: `{ is_locked: bool }` (requires `org_goals.lock`) |
+
+**Personal goals:**
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/me/goals/assigned` | List strategic goals where the current user is an assignee (excludes goals the user created) |
 
 **Goal body fields:**
 
@@ -548,6 +564,8 @@ Field types: `text`, `number`, `select`, `date`, `url`.
   "is_locked": "boolean"
 }
 ```
+
+Goal responses include an `assignees` array: `[{ id, name, color, avatar_url }]`.
 
 Goal dependency types: `blocks`, `relates_to`.
 

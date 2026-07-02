@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Target, X, LayoutGrid, GanttChartSquare, Lock, EyeOff, ChevronRight, ChevronDown } from 'lucide-react';
+import { Plus, Target, X, Search, LayoutGrid, GanttChartSquare, Lock, EyeOff, ChevronRight, ChevronDown } from 'lucide-react';
 import { getOrgGoals, createOrgGoal, getAllGoalDependencies } from '../api/orgGoals';
 import { Avatar } from '../components/Badge';
 import { useApp } from '../context/AppContext';
@@ -319,11 +319,11 @@ function GanttChart({ goals, dependencies = [], onGoalClick }) {
 
 // ── Root goal card ──────────────────────────────────────────────────────────
 
-function GoalCard({ goal, users, onClick }) {
+function GoalCard({ goal, onClick }) {
   const statusKey  = goal.auto_status || goal.status;
   const statusMeta = STATUS_META[statusKey] || STATUS_META.not_started;
   const typeMeta   = GOAL_TYPE_META[goal.goal_type] || GOAL_TYPE_META.objective;
-  const owner      = users.find(u => u.id === goal.owner_id);
+  const assignees  = Array.isArray(goal.assignees) ? goal.assignees : [];
   const progress   = goal.progress || 0;
   const childCount = (goal.children || []).length;
   const ticketCount = parseInt(goal.linked_count) || 0;
@@ -368,14 +368,15 @@ function GoalCard({ goal, users, onClick }) {
       )}
 
       <div className="flex items-center justify-between text-xs text-slate-400 pt-1 border-t border-slate-50">
-        <div>
-          {owner ? (
-            <div className="flex items-center gap-1.5">
-              <Avatar user={owner} size="xs" />
-              <span>{owner.name}</span>
-            </div>
+        <div className="flex items-center gap-1.5 min-w-0">
+          {assignees.length > 0 ? (
+            <>
+              {assignees.slice(0, 3).map(a => <Avatar key={a.id} user={a} size="xs" />)}
+              <span className="truncate max-w-[90px]">{assignees[0].name}</span>
+              {assignees.length > 1 && <span className="flex-shrink-0">+{assignees.length - 1}</span>}
+            </>
           ) : (
-            <span className="text-slate-300">No owner</span>
+            <span className="text-slate-300">Unassigned</span>
           )}
         </div>
         <div className="flex items-center gap-2">
@@ -460,8 +461,11 @@ export default function OrgGoalsPage() {
   const isAdmin   = user?.role === 'admin';
   const canManage = isAdmin || user?.systemPermissions?.includes('org_goals.write');
 
-  const [view, setView]         = useState('cards');
-  const [showForm, setShowForm] = useState(false);
+  const [view, setView]           = useState('cards');
+  const [showForm, setShowForm]   = useState(false);
+  const [search, setSearch]       = useState('');
+  const [statusFilter, setStatus] = useState('');
+  const [typeFilter, setType]     = useState('');
 
   const { data: goals = [], isLoading } = useQuery({
     queryKey: ['org-goals'],
@@ -484,6 +488,26 @@ export default function OrgGoalsPage() {
     onSuccess: () => { qc.invalidateQueries(['org-goals']); setShowForm(false); },
   });
 
+  const hasFilters = search.trim() !== '' || statusFilter !== '' || typeFilter !== '';
+
+  function flattenTree(nodes) {
+    const out = [];
+    function walk(n) { out.push(n); (n.children || []).forEach(walk); }
+    nodes.forEach(walk);
+    return out;
+  }
+
+  const filteredGoals = useMemo(() => {
+    if (!hasFilters) return goals;
+    const q = search.toLowerCase().trim();
+    return flattenTree(goals).filter(g => {
+      if (q && !g.title.toLowerCase().includes(q)) return false;
+      if (statusFilter && (g.auto_status || g.status) !== statusFilter) return false;
+      if (typeFilter && g.goal_type !== typeFilter) return false;
+      return true;
+    });
+  }, [goals, search, statusFilter, typeFilter]);
+
   return (
     <div className="flex flex-col h-full overflow-hidden bg-slate-50">
       {/* Header */}
@@ -494,7 +518,7 @@ export default function OrgGoalsPage() {
             <h1 className="text-lg font-bold text-slate-800">Strategic Goals</h1>
             {!isLoading && goals.length > 0 && (
               <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full font-medium">
-                {goals.length} objective{goals.length !== 1 ? 's' : ''}
+                {hasFilters ? `${filteredGoals.length} of ${flattenTree(goals).length}` : `${goals.length} objective${goals.length !== 1 ? 's' : ''}`}
               </span>
             )}
           </div>
@@ -524,6 +548,63 @@ export default function OrgGoalsPage() {
             )}
           </div>
         </div>
+
+        {/* Search & filter bar — only shown when there are goals */}
+        {!isLoading && goals.length > 0 && (
+          <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-100">
+            <div className="relative">
+              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+              <input
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Search goals…"
+                className="pl-8 pr-7 py-1.5 text-sm border border-slate-200 rounded-lg outline-none focus:ring-1 focus:ring-indigo-300 bg-white w-56 placeholder:text-slate-400"
+              />
+              {search && (
+                <button onClick={() => setSearch('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500 transition-colors">
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+
+            <select
+              value={statusFilter}
+              onChange={e => setStatus(e.target.value)}
+              className={`text-xs border rounded-lg px-2.5 py-1.5 outline-none cursor-pointer transition-colors ${
+                statusFilter
+                  ? 'border-indigo-300 text-indigo-700 bg-indigo-50 font-medium'
+                  : 'border-slate-200 text-slate-500 bg-white'
+              }`}>
+              <option value="">All statuses</option>
+              {Object.entries(STATUS_META).map(([v, { label }]) => (
+                <option key={v} value={v}>{label}</option>
+              ))}
+            </select>
+
+            <select
+              value={typeFilter}
+              onChange={e => setType(e.target.value)}
+              className={`text-xs border rounded-lg px-2.5 py-1.5 outline-none cursor-pointer transition-colors ${
+                typeFilter
+                  ? 'border-indigo-300 text-indigo-700 bg-indigo-50 font-medium'
+                  : 'border-slate-200 text-slate-500 bg-white'
+              }`}>
+              <option value="">All types</option>
+              {Object.entries(GOAL_TYPE_META).map(([v, { label }]) => (
+                <option key={v} value={v}>{label}</option>
+              ))}
+            </select>
+
+            {hasFilters && (
+              <button
+                onClick={() => { setSearch(''); setStatus(''); setType(''); }}
+                className="text-xs text-slate-400 hover:text-indigo-600 transition-colors flex items-center gap-1 ml-1">
+                <X size={11} /> Clear
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto p-6">
@@ -550,7 +631,7 @@ export default function OrgGoalsPage() {
         ) : goals.length === 0 ? (
           <div className="text-center py-24">
             <Target size={36} className="text-slate-200 mx-auto mb-4" />
-            <p className="text-slate-500 font-semibold mb-2">No company goals yet</p>
+            <p className="text-slate-500 font-semibold mb-2">No strategic goals yet</p>
             <p className="text-slate-400 text-sm mb-6 max-w-sm mx-auto">
               Create top-level objectives, then drill into each one to add sub-goals, assign them to
               projects, and link tickets to track execution.
@@ -562,21 +643,37 @@ export default function OrgGoalsPage() {
               </button>
             )}
           </div>
-        ) : view === 'cards' ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {goals.map(g => (
-              <GoalCard
-                key={g.id}
-                goal={g}
-                users={users}
-                onClick={() => navigate(`/goals/${g.id}`)}
-              />
-            ))}
+        ) : hasFilters && filteredGoals.length === 0 ? (
+          <div className="text-center py-20">
+            <Search size={28} className="text-slate-200 mx-auto mb-3" />
+            <p className="text-slate-500 font-medium mb-1">No goals match your filters</p>
+            <button
+              onClick={() => { setSearch(''); setStatus(''); setType(''); }}
+              className="text-sm text-indigo-600 hover:text-indigo-500 mt-2">
+              Clear filters
+            </button>
           </div>
+        ) : view === 'cards' ? (
+          <>
+            {hasFilters && (
+              <p className="text-xs text-slate-400 mb-3">
+                Showing {filteredGoals.length} matching goal{filteredGoals.length !== 1 ? 's' : ''} across all levels
+              </p>
+            )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredGoals.map(g => (
+                <GoalCard
+                  key={g.id}
+                  goal={g}
+                  onClick={() => navigate(`/goals/${g.id}`)}
+                />
+              ))}
+            </div>
+          </>
         ) : (
           <div className="bg-white rounded-xl border border-slate-100 p-4">
             <GanttChart
-              goals={goals}
+              goals={hasFilters ? filteredGoals : goals}
               dependencies={dependencies}
               onGoalClick={(id) => navigate(`/goals/${id}`)}
             />
