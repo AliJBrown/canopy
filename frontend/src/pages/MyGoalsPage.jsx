@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -694,6 +694,123 @@ function AssignedGoalsSection({ goals, onOpen }) {
   );
 }
 
+// ─── Personal goals section ───────────────────────────────────────────────────
+
+function flattenGoalTree(nodes) {
+  return nodes.flatMap(n => [n, ...flattenGoalTree(n.children || [])]);
+}
+
+function countGoalTree(nodes) {
+  return nodes.reduce((n, g) => n + 1 + countGoalTree(g.children || []), 0);
+}
+
+function PersonalGoalsSection({ goals, onOpen, onDelete }) {
+  const [collapsed, setCollapsed] = useState(false);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
+
+  const hasFilters = !!(search || statusFilter || typeFilter);
+  const totalCount = countGoalTree(goals);
+
+  const filteredGoals = useMemo(() => {
+    if (!hasFilters) return goals;
+    return flattenGoalTree(goals).filter(g => {
+      const matchSearch = !search || g.title.toLowerCase().includes(search.toLowerCase());
+      const matchStatus = !statusFilter || (g.auto_status || g.status) === statusFilter;
+      const matchType = !typeFilter || g.goal_type === typeFilter;
+      return matchSearch && matchStatus && matchType;
+    });
+  }, [goals, search, statusFilter, typeFilter, hasFilters]);
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
+        <button
+          onClick={() => setCollapsed(c => !c)}
+          className="flex items-center gap-2 text-xs font-semibold text-slate-500 uppercase tracking-wider hover:text-slate-700 transition-colors">
+          {collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+          Personal Goals
+          <span className="font-normal normal-case bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full">
+            {hasFilters ? `${filteredGoals.length} of ${totalCount}` : totalCount}
+          </span>
+        </button>
+
+        {!collapsed && (
+          <div className="flex items-center gap-2 ml-auto flex-wrap">
+            <div className="relative">
+              <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Search goals..."
+                className="pl-7 pr-3 py-1.5 text-xs border border-slate-200 rounded-lg outline-none focus:ring-1 focus:ring-indigo-300 w-44 bg-white"
+              />
+            </div>
+            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+              className="text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white outline-none focus:ring-1 focus:ring-indigo-300 text-slate-600">
+              <option value="">All statuses</option>
+              {Object.entries(STATUS_META).map(([v, { label }]) => (
+                <option key={v} value={v}>{label}</option>
+              ))}
+            </select>
+            <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}
+              className="text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white outline-none focus:ring-1 focus:ring-indigo-300 text-slate-600">
+              <option value="">All types</option>
+              {Object.entries(GOAL_TYPE_META).map(([v, { label }]) => (
+                <option key={v} value={v}>{label}</option>
+              ))}
+            </select>
+            {hasFilters && (
+              <button
+                onClick={() => { setSearch(''); setStatusFilter(''); setTypeFilter(''); }}
+                className="text-xs text-slate-400 hover:text-slate-600 flex items-center gap-1 transition-colors">
+                <X size={11} /> Clear
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {!collapsed && (
+        hasFilters && filteredGoals.length === 0 ? (
+          <div className="text-center py-8 text-sm text-slate-400">No goals match these filters.</div>
+        ) : !collapsed && (
+          <div className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-slate-100 text-xs text-slate-400 uppercase tracking-wide bg-slate-50">
+                  <th className="text-left px-4 py-2.5 font-semibold">Goal</th>
+                  <th className="text-left px-4 py-2.5 font-semibold min-w-[150px]">Progress</th>
+                  <th className="text-left px-4 py-2.5 font-semibold">Status</th>
+                  <th className="text-left px-4 py-2.5 font-semibold">Tickets</th>
+                  <th className="text-left px-4 py-2.5 font-semibold">Timeline</th>
+                  <th className="w-20 py-2.5" />
+                </tr>
+              </thead>
+              <tbody>
+                {hasFilters
+                  ? filteredGoals.map(g => (
+                      <GoalRow key={g.id} goal={{ ...g, children: [] }} onOpen={onOpen} onDelete={onDelete} />
+                    ))
+                  : goals.map(g => (
+                      <GoalRow key={g.id} goal={g} onOpen={onOpen} onDelete={onDelete} />
+                    ))
+                }
+              </tbody>
+            </table>
+            {hasFilters && filteredGoals.length > 0 && (
+              <div className="px-4 py-2 border-t border-slate-50 text-xs text-slate-400 text-center">
+                Showing {filteredGoals.length} matching goal{filteredGoals.length !== 1 ? 's' : ''} across all levels
+              </div>
+            )}
+          </div>
+        )
+      )}
+    </div>
+  );
+}
+
 // ─── Root goal creation form ──────────────────────────────────────────────────
 
 const EMPTY_FORM = {
@@ -776,13 +893,8 @@ export default function MyGoalsPage() {
     if (confirm('Delete this goal and all sub-goals?')) remove.mutate(id);
   }
 
-  function countAll(nodes) {
-    return nodes.reduce((n, g) => n + 1 + countAll(g.children || []), 0);
-  }
-  const totalGoals = countAll(goals);
-  const publishedCount = goals.reduce(function count(acc, g) {
-    return acc + (g.is_public ? 1 : 0) + (g.children || []).reduce((a, c) => a + (c.is_public ? 1 : 0), 0);
-  }, 0);
+  const totalGoals = countGoalTree(goals);
+  const publishedCount = flattenGoalTree(goals).filter(g => g.is_public).length;
 
   return (
     <div className="flex h-full overflow-hidden bg-slate-50">
@@ -851,25 +963,7 @@ export default function MyGoalsPage() {
               </button>
             </div>
           ) : (
-            <div className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-slate-100 text-xs text-slate-400 uppercase tracking-wide bg-slate-50">
-                    <th className="text-left px-4 py-2.5 font-semibold">Goal</th>
-                    <th className="text-left px-4 py-2.5 font-semibold min-w-[150px]">Progress</th>
-                    <th className="text-left px-4 py-2.5 font-semibold">Status</th>
-                    <th className="text-left px-4 py-2.5 font-semibold">Tickets</th>
-                    <th className="text-left px-4 py-2.5 font-semibold">Timeline</th>
-                    <th className="w-20 py-2.5" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {goals.map(g => (
-                    <GoalRow key={g.id} goal={g} onOpen={setOpenGoalId} onDelete={handleDelete} />
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <PersonalGoalsSection goals={goals} onOpen={setOpenGoalId} onDelete={handleDelete} />
           )}
         </div>
       </div>

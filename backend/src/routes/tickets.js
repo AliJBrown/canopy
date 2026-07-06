@@ -107,7 +107,7 @@ const TICKET_SELECT = `
 router.get('/', async (req, res, next) => {
   try {
     const {
-      projectId, status, type, priority, assigneeId, search, parentId, sprintId,
+      projectId, status, notStatus, type, priority, assigneeId, search, parentId, sprintId,
       labelIds, dueDateBefore, dueDateAfter, hasNoAssignee,
       limit = 200, offset = 0,
     } = req.query;
@@ -141,6 +141,10 @@ router.get('/', async (req, res, next) => {
       const vals = assigneeId.split(',').filter(Boolean);
       if (vals.length === 1) { params.push(vals[0]); conditions.push(`t.assignee_id = $${params.length}`); }
       else { params.push(vals); conditions.push(`t.assignee_id = ANY($${params.length}::uuid[])`); }
+    }
+    if (notStatus) {
+      const vals = notStatus.split(',').filter(Boolean);
+      params.push(vals); conditions.push(`NOT (t.status = ANY($${params.length}))`);
     }
     if (hasNoAssignee === 'true') conditions.push('t.assignee_id IS NULL');
     if (req.query.hasNoPoints === 'true') conditions.push('t.story_points IS NULL');

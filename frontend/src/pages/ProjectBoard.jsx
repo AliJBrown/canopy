@@ -255,7 +255,7 @@ export default function ProjectBoard() {
           <span className="text-xs font-semibold text-emerald-800">{activeSprint.name}</span>
           {activeSprint.end_date && (
             <span className="text-[11px] text-emerald-600">
-              ends {new Date(activeSprint.end_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+              ends {new Date(String(activeSprint.end_date).slice(0, 10) + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
             </span>
           )}
           {activeSprint.total_points > 0 && (

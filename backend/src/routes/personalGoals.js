@@ -131,6 +131,29 @@ router.get('/assigned', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// GET /created — org/strategic goals created by this user
+router.get('/created', async (req, res, next) => {
+  try {
+    const { rows } = await query(`
+      SELECT g.*,
+        CASE WHEN p.id IS NOT NULL
+          THEN json_build_object('id', p.id, 'name', p.name, 'key', p.key)
+          ELSE NULL END AS project,
+        COUNT(DISTINCT tgl.ticket_id)::int AS linked_count,
+        COUNT(DISTINCT tgl.ticket_id) FILTER (WHERE t.status = 'done')::int AS completed_count
+      FROM project_goals g
+      LEFT JOIN projects p ON p.id = g.project_id
+      LEFT JOIN ticket_goal_links tgl ON tgl.goal_id = g.id
+      LEFT JOIN tickets t ON t.id = tgl.ticket_id
+      WHERE g.created_by = $1
+        AND g.user_id IS NULL
+      GROUP BY g.id, p.id, p.name, p.key
+      ORDER BY g.created_at DESC
+    `, [req.user.id]);
+    res.json(rows);
+  } catch (err) { next(err); }
+});
+
 // POST / — create root personal goal
 router.post('/', async (req, res, next) => {
   try {

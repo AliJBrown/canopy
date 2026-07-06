@@ -170,11 +170,11 @@ router.post('/', async (req, res, next) => {
     const { rows } = await query(`
       INSERT INTO project_goals
         (project_id, parent_id, title, description, goal_type, metric_type,
-         target_value, unit, weight, status, owner_id, start_date, due_date, position)
-      VALUES (NULL, NULL, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+         target_value, unit, weight, status, owner_id, start_date, due_date, position, created_by)
+      VALUES (NULL, NULL, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
       RETURNING *
     `, [title, description, goal_type, metric_type, target_value || null,
-        unit, weight, status, owner_id || null, start_date || null, due_date || null, position]);
+        unit, weight, status, owner_id || null, start_date || null, due_date || null, position, req.user.id]);
 
     res.status(201).json(rows[0]);
   } catch (err) { next(err); }
@@ -383,12 +383,12 @@ router.post('/:id/sub-goals', async (req, res, next) => {
     const { rows } = await query(`
       INSERT INTO project_goals
         (project_id, parent_id, title, description, goal_type, metric_type,
-         target_value, unit, weight, status, owner_id, start_date, due_date, position, is_private)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+         target_value, unit, weight, status, owner_id, start_date, due_date, position, is_private, created_by)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
       RETURNING *
     `, [project_id || null, req.params.id, title, description, goal_type, metric_type,
         target_value || null, unit, weight, status, owner_id || null,
-        start_date || null, due_date || null, position, inheritPrivate]);
+        start_date || null, due_date || null, position, inheritPrivate, req.user.id]);
 
     if (inheritPrivate) {
       await query(`

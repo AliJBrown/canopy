@@ -2,6 +2,7 @@ import client from './client';
 
 export const getMyGoals = () => client.get('/api/me/goals');
 export const getMyAssignedGoals = () => client.get('/api/me/goals/assigned');
+export const getMyCreatedGoals = () => client.get('/api/me/goals/created');
 export const createMyGoal = (data) => client.post('/api/me/goals', data);
 export const createMySubGoal = (parentId, data) => client.post(`/api/me/goals/${parentId}/sub-goals`, data);
 export const updateMyGoal = (id, data) => client.patch(`/api/me/goals/${id}`, data);

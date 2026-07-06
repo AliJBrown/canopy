@@ -466,6 +466,7 @@ export default function OrgGoalsPage() {
   const [search, setSearch]       = useState('');
   const [statusFilter, setStatus] = useState('');
   const [typeFilter, setType]     = useState('');
+  const [mineOnly, setMineOnly]   = useState(false);
 
   const { data: goals = [], isLoading } = useQuery({
     queryKey: ['org-goals'],
@@ -488,7 +489,7 @@ export default function OrgGoalsPage() {
     onSuccess: () => { qc.invalidateQueries(['org-goals']); setShowForm(false); },
   });
 
-  const hasFilters = search.trim() !== '' || statusFilter !== '' || typeFilter !== '';
+  const hasFilters = search.trim() !== '' || statusFilter !== '' || typeFilter !== '' || mineOnly;
 
   function flattenTree(nodes) {
     const out = [];
@@ -504,9 +505,10 @@ export default function OrgGoalsPage() {
       if (q && !g.title.toLowerCase().includes(q)) return false;
       if (statusFilter && (g.auto_status || g.status) !== statusFilter) return false;
       if (typeFilter && g.goal_type !== typeFilter) return false;
+      if (mineOnly && g.created_by !== user?.id) return false;
       return true;
     });
-  }, [goals, search, statusFilter, typeFilter]);
+  }, [goals, search, statusFilter, typeFilter, mineOnly, user?.id]);
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-slate-50">
@@ -596,9 +598,19 @@ export default function OrgGoalsPage() {
               ))}
             </select>
 
+            <button
+              onClick={() => setMineOnly(o => !o)}
+              className={`text-xs border rounded-lg px-2.5 py-1.5 transition-colors font-medium ${
+                mineOnly
+                  ? 'border-indigo-300 text-indigo-700 bg-indigo-50'
+                  : 'border-slate-200 text-slate-500 bg-white hover:text-slate-700'
+              }`}>
+              Created by me
+            </button>
+
             {hasFilters && (
               <button
-                onClick={() => { setSearch(''); setStatus(''); setType(''); }}
+                onClick={() => { setSearch(''); setStatus(''); setType(''); setMineOnly(false); }}
                 className="text-xs text-slate-400 hover:text-indigo-600 transition-colors flex items-center gap-1 ml-1">
                 <X size={11} /> Clear
               </button>

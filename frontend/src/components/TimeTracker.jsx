@@ -165,7 +165,7 @@ export default function TimeTracker({ ticketId, estimateHours, canWrite = true }
                   <span className="text-xs font-semibold text-slate-700">{log.user?.name || 'Unknown'}</span>
                   <span className="text-[11px] text-indigo-600 font-semibold">{formatHours(log.hours)}</span>
                   <span className="text-[11px] text-slate-400">
-                    {new Date(log.logged_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    {new Date(String(log.logged_date).slice(0, 10) + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                   </span>
                 </div>
                 {log.description && (

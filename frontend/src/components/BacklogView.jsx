@@ -15,14 +15,18 @@ const STATUS_COLORS = {
   completed: 'bg-slate-100 text-slate-400',
 };
 
+function toDateStr(d) {
+  return d ? String(d).slice(0, 10) : '';
+}
+
 function formatDate(d) {
   if (!d) return null;
-  return new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return new Date(toDateStr(d) + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
 function daysLeft(endDate) {
   if (!endDate) return null;
-  const diff = Math.ceil((new Date(endDate + 'T00:00:00') - new Date()) / 86400000);
+  const diff = Math.ceil((new Date(toDateStr(endDate) + 'T00:00:00') - new Date()) / 86400000);
   if (diff < 0) return `${Math.abs(diff)}d overdue`;
   if (diff === 0) return 'ends today';
   return `${diff}d left`;
@@ -72,7 +76,7 @@ function SprintSection({ sprint, tickets, allSprints, projectId, canManage, onTi
   const { isOver, setNodeRef } = useDroppable({ id: sprint.id });
   const [collapsed, setCollapsed] = useState(sprint.status === 'completed');
   const [editing, setEditing] = useState(false);
-  const [editForm, setEditForm] = useState({ name: sprint.name, goal: sprint.goal || '', start_date: sprint.start_date || '', end_date: sprint.end_date || '', metric: sprint.metric || 'points' });
+  const [editForm, setEditForm] = useState({ name: sprint.name, goal: sprint.goal || '', start_date: toDateStr(sprint.start_date), end_date: toDateStr(sprint.end_date), metric: sprint.metric || 'points' });
 
   const { data: burndownData } = useQuery({
     queryKey: ['burndown', sprint.id],
@@ -402,7 +406,7 @@ export default function BacklogView({ projectId, canManage, onTicketClick, onAdd
   };
 
   // Separate tickets by sprint
-  const epics = allTickets.filter(t => t.type === 'epic');
+  const epics = allTickets.filter(t => t.type === 'epic' && t.status !== 'done');
   const backlogTickets = selectedEpicId
     ? allTickets.filter(t => !t.sprint_id && t.parent_id === selectedEpicId)
     : allTickets.filter(t => !t.sprint_id && t.type !== 'epic');

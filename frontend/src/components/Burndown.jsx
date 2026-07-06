@@ -7,7 +7,7 @@ const INNER_W = W - PAD.left - PAD.right;
 const INNER_H = H - PAD.top - PAD.bottom;
 
 function fmt(dateStr) {
-  const d = new Date(dateStr + 'T00:00:00');
+  const d = new Date(String(dateStr).slice(0, 10) + 'T00:00:00');
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 

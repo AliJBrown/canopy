@@ -171,7 +171,11 @@ function ProjectItem({ p, isActive }) {
 export default function Sidebar() {
   const { user, logout } = useApp();
   const { projectKey: activeProjectKey } = useParams();
-  const { data: projects = [] } = useQuery({ queryKey: ['projects'], queryFn: getProjects });
+  const { data: projectsData } = useQuery({ queryKey: ['projects'], queryFn: getProjects });
+  if (projectsData !== undefined && !Array.isArray(projectsData)) {
+    console.error('[Sidebar] projects is not an array:', typeof projectsData, projectsData);
+  }
+  const projects = Array.isArray(projectsData) ? projectsData : [];
   const [showNewProject, setShowNewProject] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(true);
   const [showUserMenu, setShowUserMenu] = useState(false);

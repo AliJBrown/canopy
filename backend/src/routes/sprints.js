@@ -92,7 +92,7 @@ router.patch('/:sprintId', async (req, res, next) => {
     const sprint = await getSprint(sprintId, projectId);
     if (!sprint) return res.status(404).json({ error: 'Sprint not found' });
 
-    const allowed = ['name', 'goal', 'start_date', 'end_date', 'metric'];
+    const allowed = ['name', 'goal', 'start_date', 'end_date', 'metric', 'retrospective'];
     const updates = [];
     const params = [];
     for (const key of allowed) {
@@ -147,7 +147,15 @@ router.post('/:sprintId/start', async (req, res, next) => {
 
     try {
       const { rows } = await query(
-        `UPDATE sprints SET status = 'active' WHERE id = $1 RETURNING *`,
+        `UPDATE sprints SET
+           status = 'active',
+           committed_points = COALESCE((
+             SELECT SUM(COALESCE(story_points, 0)) FROM tickets WHERE sprint_id = $1
+           ), 0),
+           committed_hours = COALESCE((
+             SELECT ROUND(SUM(COALESCE(estimate_hours, 0))::numeric, 1) FROM tickets WHERE sprint_id = $1
+           ), 0)
+         WHERE id = $1 RETURNING *`,
         [sprintId]
       );
       res.json(rows[0]);
@@ -214,9 +222,9 @@ router.get('/:sprintId/burndown', async (req, res, next) => {
       useHours
         ? `
           WITH sprint_tickets AS (
-            SELECT estimate_hours, completed_at FROM tickets WHERE sprint_id = $1
+            SELECT estimate_hours, completed_at, status FROM tickets WHERE sprint_id = $1
             UNION ALL
-            SELECT child.estimate_hours, child.completed_at
+            SELECT child.estimate_hours, child.completed_at, child.status
             FROM tickets child
             JOIN tickets parent ON parent.id = child.parent_id
             WHERE parent.sprint_id = $1 AND child.sprint_id IS NULL
@@ -228,18 +236,23 @@ router.get('/:sprintId/burndown', async (req, res, next) => {
             SELECT generate_series($2::date, LEAST($3::date, CURRENT_DATE), '1 day')::date AS day
           )
           SELECT
-            d.day,
-            ROUND((SELECT COALESCE(SUM(COALESCE(estimate_hours, 0)), 0)
-             FROM sprint_tickets
-             WHERE completed_at IS NULL OR completed_at::date > d.day
-            )::numeric, 1) AS remaining,
+            d.day::text AS date,
+            CASE
+              WHEN d.day >= LEAST($3::date, CURRENT_DATE) THEN
+                ROUND((SELECT COALESCE(SUM(COALESCE(estimate_hours, 0)), 0) FROM sprint_tickets WHERE status != 'done')::numeric, 1)
+              ELSE
+                ROUND((SELECT COALESCE(SUM(COALESCE(estimate_hours, 0)), 0)
+                 FROM sprint_tickets
+                 WHERE completed_at IS NULL OR completed_at::date > d.day
+                )::numeric, 1)
+            END AS remaining,
             GREATEST(0, ROUND((t.val * (1 - (d.day - $2::date)::float / NULLIF(($3::date - $2::date), 0)))::numeric, 1)) AS ideal
           FROM days d, total t
           ORDER BY d.day
         `
         : `
           WITH sprint_tickets AS (
-            SELECT story_points, completed_at FROM tickets WHERE sprint_id = $1
+            SELECT story_points, completed_at, status FROM tickets WHERE sprint_id = $1
           ),
           total AS (
             SELECT COALESCE(SUM(COALESCE(story_points, 1)), 0)::float AS val FROM sprint_tickets
@@ -248,11 +261,16 @@ router.get('/:sprintId/burndown', async (req, res, next) => {
             SELECT generate_series($2::date, LEAST($3::date, CURRENT_DATE), '1 day')::date AS day
           )
           SELECT
-            d.day,
-            (SELECT COALESCE(SUM(COALESCE(story_points, 1)), 0)
-             FROM sprint_tickets
-             WHERE completed_at IS NULL OR completed_at::date > d.day
-            )::int AS remaining,
+            d.day::text AS date,
+            CASE
+              WHEN d.day >= LEAST($3::date, CURRENT_DATE) THEN
+                (SELECT COALESCE(SUM(COALESCE(story_points, 1)), 0) FROM sprint_tickets WHERE status != 'done')::int
+              ELSE
+                (SELECT COALESCE(SUM(COALESCE(story_points, 1)), 0)
+                 FROM sprint_tickets
+                 WHERE completed_at IS NULL OR completed_at::date > d.day
+                )::int
+            END AS remaining,
             GREATEST(0, ROUND(t.val * (1 - (d.day - $2::date)::float / NULLIF(($3::date - $2::date), 0))))::int AS ideal
           FROM days d, total t
           ORDER BY d.day

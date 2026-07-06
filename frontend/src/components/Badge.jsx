@@ -103,7 +103,7 @@ export function StatusBadge({ status, onChange, statuses }) {
 
 export function Avatar({ user, size = 'sm' }) {
   if (!user) return null;
-  const initials = user.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+  const initials = (user.name || '?').split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
   const sizeClass = size === 'sm' ? 'w-6 h-6 text-xs' : 'w-8 h-8 text-sm';
   return (
     <span
