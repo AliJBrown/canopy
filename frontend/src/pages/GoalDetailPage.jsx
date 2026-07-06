@@ -270,6 +270,7 @@ function GoalCard({ goal, onClick }) {
 // ── Ticket linker ───────────────────────────────────────────────────────────
 
 function TicketLinker({ goalId, linkedTickets, onLink, onUnlink }) {
+  const navigate = useNavigate();
   const [query, setQuery]         = useState('');
   const [debouncedQ, setDebouncedQ] = useState('');
   const timer = useRef(null);
@@ -338,10 +339,12 @@ function TicketLinker({ goalId, linkedTickets, onLink, onUnlink }) {
             {linkedTickets.map(t => (
               <div key={t.id} className="flex items-center gap-2.5 px-3 py-2.5 group">
                 <TypeBadge type={t.type} />
-                <div className="flex-1 min-w-0">
+                <button
+                  onClick={() => navigate(`/p/${t.project_key}?ticket=${t.id}`)}
+                  className="flex-1 min-w-0 flex items-center text-left hover:underline decoration-slate-300 underline-offset-2">
                   <span className="text-xs font-mono text-slate-400 mr-1.5">{t.ticket_key}</span>
                   <span className="text-sm text-slate-700 truncate">{t.title}</span>
-                </div>
+                </button>
                 <StatusBadge status={t.status} />
                 <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-medium flex-shrink-0">
                   {t.project_key}
@@ -512,8 +515,9 @@ function GoalMembersSection({ goalId, users }) {
 
 function GoalAssigneesSection({ goalId, users, canEdit }) {
   const qc = useQueryClient();
-  const [adding, setAdding] = useState(false);
-  const [selectedUid, setSelectedUid] = useState('');
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const popoverRef = useRef(null);
 
   const { data: assignees = [] } = useQuery({
     queryKey: ['goal-assignees', goalId],
@@ -526,8 +530,6 @@ function GoalAssigneesSection({ goalId, users, canEdit }) {
       qc.invalidateQueries(['goal-assignees', goalId]);
       qc.invalidateQueries(['org-goal', goalId]);
       qc.invalidateQueries(['org-goals']);
-      setSelectedUid('');
-      setAdding(false);
     },
   });
 
@@ -540,8 +542,27 @@ function GoalAssigneesSection({ goalId, users, canEdit }) {
     },
   });
 
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => {
+      if (popoverRef.current && !popoverRef.current.contains(e.target)) {
+        setOpen(false);
+        setSearch('');
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
   const assigneeIds = new Set(assignees.map(a => a.id));
-  const available   = users.filter(u => !assigneeIds.has(u.id));
+  const filtered = users.filter(u =>
+    u.name.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const toggle = (uid) => {
+    if (assigneeIds.has(uid)) removeMut.mutate(uid);
+    else addMut.mutate(uid);
+  };
 
   return (
     <div className="flex items-center gap-2 flex-wrap">
@@ -558,37 +579,52 @@ function GoalAssigneesSection({ goalId, users, canEdit }) {
           )}
         </div>
       ))}
-      {assignees.length === 0 && !adding && (
+      {assignees.length === 0 && !open && (
         <span className="text-xs text-slate-400 italic">No assignees</span>
       )}
-      {canEdit && !adding && (
-        <button
-          onClick={() => setAdding(true)}
-          className="w-7 h-7 rounded-full border-2 border-dashed border-slate-200 text-slate-400 hover:border-indigo-400 hover:text-indigo-600 flex items-center justify-center transition-colors"
-          title="Add assignee">
-          <UserPlus size={12} />
-        </button>
-      )}
-      {adding && (
-        <div className="flex items-center gap-2">
-          <select
-            value={selectedUid}
-            onChange={e => setSelectedUid(e.target.value)}
-            autoFocus
-            className="text-sm border border-slate-200 rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-300 bg-white">
-            <option value="">Pick a person…</option>
-            {available.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-          </select>
+      {canEdit && (
+        <div className="relative" ref={popoverRef}>
           <button
-            onClick={() => selectedUid && addMut.mutate(selectedUid)}
-            disabled={!selectedUid || addMut.isPending}
-            className="text-xs text-white bg-indigo-600 px-2 py-1 rounded-lg font-medium disabled:opacity-40">
-            Add
+            onClick={() => setOpen(o => !o)}
+            className="w-7 h-7 rounded-full border-2 border-dashed border-slate-200 text-slate-400 hover:border-indigo-400 hover:text-indigo-600 flex items-center justify-center transition-colors"
+            title="Add assignees">
+            <UserPlus size={12} />
           </button>
-          <button onClick={() => { setAdding(false); setSelectedUid(''); }}
-            className="text-xs text-slate-400 hover:text-slate-600">
-            Cancel
-          </button>
+          {open && (
+            <div className="absolute left-0 top-9 z-50 w-52 bg-white border border-slate-200 rounded-xl shadow-lg py-1">
+              <div className="px-2 pt-1 pb-1">
+                <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1">
+                  <Search size={11} className="text-slate-400 flex-shrink-0" />
+                  <input
+                    autoFocus
+                    value={search}
+                    onChange={e => setSearch(e.target.value)}
+                    placeholder="Search people…"
+                    className="flex-1 text-xs bg-transparent outline-none placeholder-slate-400 min-w-0" />
+                </div>
+              </div>
+              <div className="max-h-48 overflow-y-auto">
+                {filtered.length === 0 && (
+                  <p className="text-xs text-slate-400 px-3 py-2 italic">No matches</p>
+                )}
+                {filtered.map(u => {
+                  const assigned = assigneeIds.has(u.id);
+                  return (
+                    <button
+                      key={u.id}
+                      onClick={() => toggle(u.id)}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-slate-50 transition-colors">
+                      <Avatar user={u} size="xs" />
+                      <span className="flex-1 text-xs text-left text-slate-700 truncate">{u.name}</span>
+                      {assigned && <span className="w-3.5 h-3.5 rounded-full bg-indigo-500 flex items-center justify-center flex-shrink-0">
+                        <svg viewBox="0 0 10 8" fill="none" className="w-2 h-2"><path d="M1 4l2.5 2.5L9 1" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                      </span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

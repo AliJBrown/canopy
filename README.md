@@ -10,6 +10,7 @@ A self-hosted project management and ticketing system. Supports multiple project
 - [Architecture](#architecture)
 - [Configuration](#configuration)
 - [Database](#database)
+- [Backups & Disaster Recovery](#automated-backups)
 - [Features](#features)
 - [API Reference](#api-reference)
 - [Roles & Permissions](#roles--permissions)
@@ -22,15 +23,16 @@ A self-hosted project management and ticketing system. Supports multiple project
 
 ```bash
 git clone <repo-url> && cd canopy
-cp .env .env.local          # edit secrets before running in production
-docker compose up --build
+cp .env.example .env        # edit secrets before running in production
+docker compose up --build -d
 ```
 
 | Service   | URL                          |
 |-----------|------------------------------|
-| App       | http://localhost:3000        |
-| API       | http://localhost:4000        |
+| App       | http://localhost:8080        |
 | MinIO UI  | http://localhost:9001        |
+
+The app is served on port 8080 by default. The frontend nginx proxy routes `/api/` requests to the backend internally — the backend port is not exposed. To change the port, set `FRONTEND_PORT` in `.env`.
 
 The first user to register becomes the system admin.
 
@@ -120,24 +122,137 @@ Postgres and MinIO data are stored in `./data/` on the host machine (bind-mounte
 - `docker compose down` — stops containers, data is preserved
 - `docker compose down -v` — same; `-v` has nothing left to delete and is safe to run
 
-### Backup
+### Automated backups
 
-Dump the live database to a compressed file in `./backups/`:
+A `backup` container runs as part of the stack and performs nightly backups at 2am automatically. No extra setup is required — just make sure it is running:
 
 ```bash
-./scripts/backup.sh
-# → backups/canopy_20240615_143022.sql.gz
+docker compose up -d backup
 ```
 
-Run this before upgrades, or schedule it via cron for automated backups.
+Backups are written to `./data/backups/` on the host:
+
+| Path | Contents |
+|------|----------|
+| `data/backups/db/` | Timestamped compressed Postgres dumps (`canopy_YYYYMMDD_HHMMSS.sql.gz`) |
+| `data/backups/files/` | Mirror of all MinIO file attachments (incrementally synced) |
+
+Database dumps older than 30 days are deleted automatically. The files mirror always reflects current state.
+
+**Trigger a backup immediately** (without waiting for the schedule):
+
+```bash
+docker compose exec backup backup.sh
+```
+
+**Watch backup logs:**
+
+```bash
+docker compose exec backup tail -f /var/log/backup.log
+```
+
+**Backup configuration** (in `.env`):
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `BACKUP_SCHEDULE` | `0 2 * * *` | Cron schedule (default: 2am daily) |
+| `BACKUP_RETENTION_DAYS` | `30` | Days to keep database dump files |
+| `BACKUP_ON_START` | `false` | Run a backup immediately on container start |
+| `BACKUP_RCLONE_DEST` | _(empty)_ | Optional rclone destination for off-site sync |
+
+**Off-site sync (optional):**
+
+Set `BACKUP_RCLONE_DEST` to sync to any rclone-supported provider after each local backup (S3, Backblaze B2, SFTP, Google Drive, and [40+ others](https://rclone.org/overview/)):
+
+```
+# .env
+BACKUP_RCLONE_DEST=s3:my-bucket/canopy-backups
+# or
+BACKUP_RCLONE_DEST=b2:my-bucket/canopy-backups
+# or
+BACKUP_RCLONE_DEST=sftp:myserver.com/backups/canopy
+```
+
+Place your rclone credentials in `./config/rclone.conf` on the host (the `config/` directory is mounted read-only into the backup container). Alternatively, use `RCLONE_CONFIG_*` environment variables — see the [rclone docs](https://rclone.org/docs/#environment-variables).
 
 ### Restore
 
+The containers must be running. Restore prompts for confirmation before making any changes.
+
+**Restore the database** (interactive backup selection):
+
 ```bash
-./scripts/restore.sh backups/canopy_20240615_143022.sql.gz
+./scripts/restore.sh db
 ```
 
-The script drops and recreates the database, then loads the dump. You have 5 seconds to cancel with `Ctrl+C` before it proceeds. The containers must be running.
+**Restore a specific dump:**
+
+```bash
+./scripts/restore.sh db --from data/backups/db/canopy_20260703_020001.sql.gz
+```
+
+**Restore file attachments only:**
+
+```bash
+./scripts/restore.sh files
+```
+
+**Restore everything:**
+
+```bash
+./scripts/restore.sh all
+```
+
+### Disaster recovery (fresh server)
+
+Use this procedure if the server is lost entirely and you need to rebuild from backup.
+
+**1. Provision a new server and install Docker + Docker Compose.**
+
+**2. Copy the repo to the new server:**
+
+```bash
+git clone <repo-url> canopy && cd canopy
+```
+
+**3. Restore your configuration:**
+
+```bash
+# Copy your .env from a secure backup or secret store
+scp old-server:/path/to/canopy/.env .
+```
+
+**4. Restore your backup data.** If you have the `./data/backups/` directory from the old server:
+
+```bash
+scp -r old-server:/path/to/canopy/data/backups ./data/backups
+```
+
+If you used `BACKUP_RCLONE_DEST` for off-site sync, pull from there instead:
+
+```bash
+rclone copy s3:my-bucket/canopy-backups ./data/backups
+```
+
+**5. Start the data services and backup container:**
+
+```bash
+docker compose up -d db minio backup
+```
+
+**6. Run the restore:**
+
+```bash
+./scripts/restore.sh all
+```
+
+**7. Bring up the full stack:**
+
+```bash
+docker compose up -d
+```
+
+The app will be available at `http://<new-server-ip>:8080` (or your configured `FRONTEND_PORT`).
 
 ### Schema changes (migrations)
 

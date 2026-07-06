@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Target, X, Search, LayoutGrid, GanttChartSquare, Lock, EyeOff, ChevronRight, ChevronDown } from 'lucide-react';
+import { Plus, Target, X, Search, LayoutGrid, GanttChartSquare, Lock, EyeOff, ChevronRight, ChevronDown, ScanSearch } from 'lucide-react';
 import { getOrgGoals, createOrgGoal, getAllGoalDependencies } from '../api/orgGoals';
 import { Avatar } from '../components/Badge';
 import { useApp } from '../context/AppContext';
@@ -84,7 +84,7 @@ function useDateRange(rows) {
   }, [rows]);
 }
 
-function GanttChart({ goals, dependencies = [], onGoalClick }) {
+function GanttChart({ goals, dependencies = [], onGoalClick, onFocusGoal }) {
   const [collapsed, setCollapsed] = useState(new Set());
   const chartRef  = useRef(null);
   const [chartPx, setChartPx] = useState(800);
@@ -201,7 +201,7 @@ function GanttChart({ goals, dependencies = [], onGoalClick }) {
 
             return (
               <div key={g.id}
-                className="flex border-b border-slate-50 hover:bg-slate-50/70 transition-colors"
+                className="group/row flex border-b border-slate-50 hover:bg-slate-50/70 transition-colors"
                 style={{ height: ROW_H, position: 'absolute', top: i * ROW_H, left: 0, right: 0 }}>
                 {/* Label */}
                 <div
@@ -225,6 +225,14 @@ function GanttChart({ goals, dependencies = [], onGoalClick }) {
                   <span className={`text-[9px] font-bold px-1 py-0.5 rounded flex-shrink-0 ${GOAL_TYPE_META[g.goal_type]?.cls || ''}`}>
                     {GOAL_TYPE_META[g.goal_type]?.abbr || '?'}
                   </span>
+                  {onFocusGoal && (
+                    <button
+                      onClick={e => { e.stopPropagation(); onFocusGoal(g); }}
+                      title="Scope Gantt to this goal"
+                      className="opacity-0 group-hover/row:opacity-100 flex-shrink-0 p-0.5 text-slate-300 hover:text-indigo-500 transition-all rounded">
+                      <ScanSearch size={11} />
+                    </button>
+                  )}
                 </div>
 
                 {/* Chart strip */}
@@ -467,6 +475,16 @@ export default function OrgGoalsPage() {
   const [statusFilter, setStatus] = useState('');
   const [typeFilter, setType]     = useState('');
   const [mineOnly, setMineOnly]   = useState(false);
+  const [ganttFocus, setGanttFocus] = useState(null); // { id, title }
+
+  function findSubtree(nodes, id) {
+    for (const n of nodes) {
+      if (n.id === id) return n;
+      const found = findSubtree(n.children || [], id);
+      if (found) return found;
+    }
+    return null;
+  }
 
   const { data: goals = [], isLoading } = useQuery({
     queryKey: ['org-goals'],
@@ -608,6 +626,16 @@ export default function OrgGoalsPage() {
               Created by me
             </button>
 
+            {ganttFocus && view === 'gantt' && (
+              <div className="flex items-center gap-1 bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-medium rounded-lg px-2.5 py-1.5">
+                <ScanSearch size={11} />
+                <span className="max-w-[160px] truncate">{ganttFocus.title}</span>
+                <button onClick={() => setGanttFocus(null)} className="text-indigo-400 hover:text-indigo-700 ml-0.5">
+                  <X size={11} />
+                </button>
+              </div>
+            )}
+
             {hasFilters && (
               <button
                 onClick={() => { setSearch(''); setStatus(''); setType(''); setMineOnly(false); }}
@@ -685,9 +713,10 @@ export default function OrgGoalsPage() {
         ) : (
           <div className="bg-white rounded-xl border border-slate-100 p-4">
             <GanttChart
-              goals={hasFilters ? filteredGoals : goals}
+              goals={ganttFocus ? [findSubtree(goals, ganttFocus.id)].filter(Boolean) : (hasFilters ? filteredGoals : goals)}
               dependencies={dependencies}
               onGoalClick={(id) => navigate(`/goals/${id}`)}
+              onFocusGoal={(g) => setGanttFocus(f => f?.id === g.id ? null : { id: g.id, title: g.title })}
             />
           </div>
         )}
