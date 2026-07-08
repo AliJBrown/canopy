@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Target, Plus, ChevronRight, ChevronDown, X, Trash2, Pencil, Link2,
+  Target, Plus, ChevronRight, ChevronDown, X, Trash2, Pencil, Link2, Link,
   Search, CheckCircle2, AlertTriangle, AlertCircle, Clock, CircleDashed,
   Ban, EyeOff, Eye, Layers, LayoutGrid, List, Calendar, Lock, Unlock,
 } from 'lucide-react';
@@ -17,6 +17,7 @@ import {
 import { Avatar, StatusBadge, TypeBadge } from '../components/Badge';
 import { useProjectPermissions } from '../hooks/useProjectPermissions';
 import TicketPanel from '../components/TicketPanel';
+import { copyToClipboard } from '../utils/clipboard';
 
 function parseDateStr(d) {
   return new Date(String(d).slice(0, 10) + 'T00:00:00');
@@ -83,12 +84,13 @@ function GoalTypeBadge({ type }) {
 }
 
 // KPI summary cards (top-level objectives only)
-function KpiCards({ roots }) {
+function KpiCards({ roots, onSelect }) {
   if (!roots.length) return null;
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
       {roots.map(goal => (
-        <div key={goal.id} className="bg-white rounded-xl border border-slate-200 p-4 space-y-3 shadow-sm">
+        <div key={goal.id} onClick={() => onSelect?.(goal)}
+          className="bg-white rounded-xl border border-slate-200 p-4 space-y-3 shadow-sm cursor-pointer hover:border-indigo-200 hover:shadow-md transition-all">
           <div className="flex items-start justify-between gap-2">
             <div>
               <GoalTypeBadge type={goal.goal_type} />
@@ -413,8 +415,30 @@ function TicketLinker({ projectId, goalId, onClose }) {
   );
 }
 
+// Copy link button
+function CopyLinkButton({ url }) {
+  const [status, setStatus] = useState(null); // null | 'copied' | 'failed'
+  const copy = async () => {
+    const ok = await copyToClipboard(url);
+    setStatus(ok ? 'copied' : 'failed');
+    setTimeout(() => setStatus(null), 2000);
+  };
+  return (
+    <button
+      onClick={copy}
+      title="Copy link"
+      className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors">
+      {status === 'copied'
+        ? <span className="text-[10px] font-medium text-indigo-600 px-0.5">Copied!</span>
+        : status === 'failed'
+        ? <span className="text-[10px] font-medium text-red-500 px-0.5">Failed</span>
+        : <Link size={14} />}
+    </button>
+  );
+}
+
 // Goal detail panel
-function GoalPanel({ goal, projectId, members, canWrite, canDelete, canLockGoals, onClose, onDeleted, onAddChild, onTicketClick }) {
+function GoalPanel({ goal, projectId, projectKey, members, canWrite, canDelete, canLockGoals, onClose, onDeleted, onAddChild, onTicketClick }) {
   const qc = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [showLinker, setShowLinker] = useState(null); // 'epic' | 'ticket' | null
@@ -477,6 +501,7 @@ function GoalPanel({ goal, projectId, members, canWrite, canDelete, canLockGoals
           )}
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
+          <CopyLinkButton url={`${window.location.origin}/p/${projectKey}/goals?goal=${goal.id}`} />
           {canLockGoals && !goal.user_id && (
             <button
               onClick={() => toggleLock.mutate(!goal.is_locked)}
@@ -998,6 +1023,7 @@ function flattenTree(goals, result = [], depth = 0) {
 
 export default function GoalsPage() {
   const { projectKey } = useParams();
+  const location = useLocation();
   const qc = useQueryClient();
 
   const { data: projects = [] } = useQuery({ queryKey: ['projects'], queryFn: getProjects });
@@ -1039,6 +1065,15 @@ export default function GoalsPage() {
     const fresh = flat.find(g => g.id === selectedGoal.id);
     if (fresh) setSelectedGoal(fresh);
   }, [roots]);
+
+  // Deep-link support: open the goal named in ?goal=<id> once the tree has loaded
+  useEffect(() => {
+    const id = new URLSearchParams(location.search).get('goal');
+    if (!id || !roots.length) return;
+    const flat = flattenTree(roots);
+    const target = flat.find(g => String(g.id) === id);
+    if (target) setSelectedGoal(target);
+  }, [location.search, roots]);
 
   if (!project) return null;
 
@@ -1132,7 +1167,7 @@ export default function GoalsPage() {
           ) : (
             /* ── Tree view ── */
             <div className="p-5">
-              <KpiCards roots={roots} />
+              <KpiCards roots={roots} onSelect={(g) => { setSelectedGoal(g); setShowCreate(false); }} />
               <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
                 <div className="flex items-center gap-2 px-4 py-2 bg-slate-50 border-b border-slate-200 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
                   <div className="flex-1 pl-6">Goal</div>
@@ -1177,6 +1212,7 @@ export default function GoalsPage() {
                 key={selectedGoal.id}
                 goal={selectedGoal}
                 projectId={project.id}
+                projectKey={projectKey}
                 members={members}
                 canWrite={canWrite}
                 canDelete={canDelete}

@@ -11,6 +11,7 @@ import { getSprints } from '../api/sprints';
 import { getLabels, createLabel, updateLabel, deleteLabel } from '../api/labels';
 import { getFields, upsertFieldValues } from '../api/fields';
 import { getProjectMembers } from '../api/admin';
+import { copyToClipboard } from '../utils/clipboard';
 import { useApp } from '../context/AppContext';
 import { useProjectPermissions } from '../hooks/useProjectPermissions';
 import { TypeBadge, StatusBadge, Avatar, STATUS_OPTIONS, TYPE_OPTIONS, PRIORITY_OPTIONS } from './Badge';
@@ -19,19 +20,22 @@ import TimeTracker from './TimeTracker';
 const PRESET_COLORS = ['#6366f1','#ef4444','#f59e0b','#10b981','#3b82f6','#8b5cf6','#ec4899','#f97316'];
 
 function CopyLinkButton({ url }) {
-  const [copied, setCopied] = useState(false);
-  const copy = () => {
-    navigator.clipboard.writeText(url).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
+  const [status, setStatus] = useState(null); // null | 'copied' | 'failed'
+  const copy = async () => {
+    const ok = await copyToClipboard(url);
+    setStatus(ok ? 'copied' : 'failed');
+    setTimeout(() => setStatus(null), 2000);
   };
   return (
     <button
       onClick={copy}
       title="Copy link"
       className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors relative">
-      {copied ? <span className="text-[10px] font-medium text-indigo-600 absolute -top-5 left-1/2 -translate-x-1/2 whitespace-nowrap bg-white border border-indigo-100 rounded px-1.5 py-0.5 shadow-sm">Copied!</span> : null}
+      {status && (
+        <span className={`text-[10px] font-medium absolute -top-5 left-1/2 -translate-x-1/2 whitespace-nowrap bg-white border rounded px-1.5 py-0.5 shadow-sm ${status === 'copied' ? 'text-indigo-600 border-indigo-100' : 'text-red-500 border-red-100'}`}>
+          {status === 'copied' ? 'Copied!' : 'Copy failed'}
+        </span>
+      )}
       <Link size={15} />
     </button>
   );

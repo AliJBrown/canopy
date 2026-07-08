@@ -13,6 +13,7 @@ import {
   getGoalDependencies, addGoalDependency, removeGoalDependency, searchGoals,
   getGoalProjects,
 } from '../api/orgGoals';
+import { copyToClipboard } from '../utils/clipboard';
 import { Avatar, TypeBadge, StatusBadge } from '../components/Badge';
 import { useApp } from '../context/AppContext';
 import client from '../api/client';
@@ -270,20 +271,21 @@ function GoalCard({ goal, onClick }) {
 // ── Copy link button ─────────────────────────────────────────────────────────
 
 function CopyLinkButton({ url }) {
-  const [copied, setCopied] = useState(false);
-  const copy = () => {
-    navigator.clipboard.writeText(url).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
+  const [status, setStatus] = useState(null); // null | 'copied' | 'failed'
+  const copy = async () => {
+    const ok = await copyToClipboard(url);
+    setStatus(ok ? 'copied' : 'failed');
+    setTimeout(() => setStatus(null), 2000);
   };
   return (
     <button
       onClick={copy}
       title="Copy link"
       className="relative flex items-center gap-1.5 text-xs text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 px-2 py-1 rounded-lg transition-colors">
-      {copied
+      {status === 'copied'
         ? <span className="text-indigo-600 font-medium">Copied!</span>
+        : status === 'failed'
+        ? <span className="text-red-500 font-medium">Copy failed</span>
         : <><Link size={12} /> Copy link</>}
     </button>
   );

@@ -13,6 +13,7 @@ import { getProjects } from '../api/projects';
 import { getLabels } from '../api/labels';
 import { getProjectMembers } from '../api/admin';
 import { getProjectStatuses } from '../api/projectStatuses';
+import { copyToClipboard } from '../utils/clipboard';
 import LabelCombobox from '../components/LabelCombobox';
 
 const TRIGGER_TYPES = [
@@ -832,9 +833,10 @@ function ApiKeysTab({ projectId }) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['api-tokens'] }),
   });
 
-  function copyToken() {
-    if (newToken) {
-      navigator.clipboard.writeText(newToken);
+  async function copyToken() {
+    if (!newToken) return;
+    const ok = await copyToClipboard(newToken);
+    if (ok) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
