@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Plus, Target, X, Search, Lock, Unlock, Trash2, Pencil, EyeOff,
-  ChevronRight, CalendarRange, Link2, Layers, UserPlus, GitMerge, Users,
+  ChevronRight, CalendarRange, Link2, Layers, UserPlus, GitMerge, Users, Link,
 } from 'lucide-react';
 import {
   getOrgGoal, createSubGoal, updateOrgGoal, deleteOrgGoal, lockOrgGoal,
@@ -264,6 +264,28 @@ function GoalCard({ goal, onClick }) {
         </div>
       </div>
     </div>
+  );
+}
+
+// ── Copy link button ─────────────────────────────────────────────────────────
+
+function CopyLinkButton({ url }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+  return (
+    <button
+      onClick={copy}
+      title="Copy link"
+      className="relative flex items-center gap-1.5 text-xs text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 px-2 py-1 rounded-lg transition-colors">
+      {copied
+        ? <span className="text-indigo-600 font-medium">Copied!</span>
+        : <><Link size={12} /> Copy link</>}
+    </button>
   );
 }
 
@@ -1150,22 +1172,25 @@ export default function GoalDetailPage() {
     <div className="flex flex-col h-full overflow-hidden bg-slate-50">
       {/* Breadcrumb */}
       <div className="bg-white border-b border-slate-100 px-6 py-2.5 flex-shrink-0">
-        <div className="flex items-center gap-1 text-sm flex-wrap">
-          <button onClick={() => navigate('/goals')}
-            className="text-indigo-600 hover:text-indigo-800 font-medium transition-colors whitespace-nowrap">
-            Strategic Goals
-          </button>
-          {ancestors.map(a => (
-            <React.Fragment key={a.id}>
-              <ChevronRight size={13} className="text-slate-300 flex-shrink-0" />
-              <button onClick={() => navigate(`/goals/${a.id}`)}
-                className="text-slate-500 hover:text-indigo-600 transition-colors truncate max-w-[160px]">
-                {a.title}
-              </button>
-            </React.Fragment>
-          ))}
-          <ChevronRight size={13} className="text-slate-300 flex-shrink-0" />
-          <span className="text-slate-700 font-medium truncate max-w-[220px]">{goal.title}</span>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1 text-sm flex-wrap min-w-0">
+            <button onClick={() => navigate('/goals')}
+              className="text-indigo-600 hover:text-indigo-800 font-medium transition-colors whitespace-nowrap">
+              Strategic Goals
+            </button>
+            {ancestors.map(a => (
+              <React.Fragment key={a.id}>
+                <ChevronRight size={13} className="text-slate-300 flex-shrink-0" />
+                <button onClick={() => navigate(`/goals/${a.id}`)}
+                  className="text-slate-500 hover:text-indigo-600 transition-colors truncate max-w-[160px]">
+                  {a.title}
+                </button>
+              </React.Fragment>
+            ))}
+            <ChevronRight size={13} className="text-slate-300 flex-shrink-0" />
+            <span className="text-slate-700 font-medium truncate max-w-[220px]">{goal.title}</span>
+          </div>
+          <CopyLinkButton url={`${window.location.origin}/goals/${goalId}`} />
         </div>
       </div>
 

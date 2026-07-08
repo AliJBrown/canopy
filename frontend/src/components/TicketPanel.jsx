@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { X, Trash2, Plus, ExternalLink, ChevronRight, Pencil, Paperclip, Download, Image, FileText, AlertCircle } from 'lucide-react';
+import { X, Trash2, Plus, ExternalLink, ChevronRight, Pencil, Paperclip, Download, Image, FileText, AlertCircle, Link } from 'lucide-react';
 import { getTicket, updateTicket, deleteTicket, createTicket, getTickets } from '../api/tickets';
 import { getDependencies, addDependency, removeDependency } from '../api/dependencies';
 import { getComments, createComment, deleteComment } from '../api/comments';
@@ -17,6 +17,25 @@ import { TypeBadge, StatusBadge, Avatar, STATUS_OPTIONS, TYPE_OPTIONS, PRIORITY_
 import TimeTracker from './TimeTracker';
 
 const PRESET_COLORS = ['#6366f1','#ef4444','#f59e0b','#10b981','#3b82f6','#8b5cf6','#ec4899','#f97316'];
+
+function CopyLinkButton({ url }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+  return (
+    <button
+      onClick={copy}
+      title="Copy link"
+      className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors relative">
+      {copied ? <span className="text-[10px] font-medium text-indigo-600 absolute -top-5 left-1/2 -translate-x-1/2 whitespace-nowrap bg-white border border-indigo-100 rounded px-1.5 py-0.5 shadow-sm">Copied!</span> : null}
+      <Link size={15} />
+    </button>
+  );
+}
 
 function useClickOutside(ref, onClose) {
   useEffect(() => {
@@ -799,6 +818,7 @@ export default function TicketPanel({ ticketId, projectId, projectRole, onClose,
                 {!canWrite && (
                   <span className="text-[10px] text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full font-medium mr-1">View only</span>
                 )}
+                <CopyLinkButton url={`${window.location.origin}/p/${ticket.project_key}?ticket=${ticket.id}`} />
                 {canDelete && (
                   <button onClick={() => { if (confirm('Delete this ticket?')) remove.mutate(); }}
                     className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors">
