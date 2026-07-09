@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { X, Trash2, Plus, ExternalLink, ChevronRight, Pencil, Paperclip, Download, Image, FileText, AlertCircle, Link } from 'lucide-react';
+import { X, Trash2, Plus, ExternalLink, ChevronRight, Pencil, Paperclip, Download, Image, FileText, AlertCircle, Link, Target } from 'lucide-react';
 import { getTicket, updateTicket, deleteTicket, createTicket, getTickets } from '../api/tickets';
 import { getDependencies, addDependency, removeDependency } from '../api/dependencies';
+import { getTicketGoals, getTicketGoalCandidates, linkGoalToTicket, unlinkGoalFromTicket } from '../api/goals';
 import { getComments, createComment, deleteComment } from '../api/comments';
 import { getActivity } from '../api/activity';
 import { getAttachments, uploadAttachment, deleteAttachment } from '../api/attachments';
@@ -313,7 +314,7 @@ function renderCommentBody(body) {
         </span>
       );
     }
-    return <span key={i}>{part}</span>;
+    return <span key={i}>{linkify(part)}</span>;
   });
 }
 
@@ -667,6 +668,102 @@ function DependenciesSection({ ticketId, projectId, canWrite, onTicketClick }) {
   );
 }
 
+function GoalsSection({ ticketId, projectId, canWrite, onNavigateToGoal }) {
+  const qc = useQueryClient();
+  const [adding, setAdding] = useState(false);
+  const [search, setSearch] = useState('');
+
+  const { data: goals = [] } = useQuery({
+    queryKey: ['ticket-goals', ticketId],
+    queryFn: () => getTicketGoals(ticketId),
+    enabled: !!ticketId,
+  });
+
+  const { data: candidates = [] } = useQuery({
+    queryKey: ['ticket-goal-candidates', ticketId, search],
+    queryFn: () => getTicketGoalCandidates(ticketId, search),
+    enabled: adding,
+  });
+
+  const linkMut = useMutation({
+    mutationFn: (goalId) => linkGoalToTicket(ticketId, goalId),
+    onSuccess: () => {
+      qc.invalidateQueries(['ticket-goals', ticketId]);
+      setAdding(false);
+      setSearch('');
+    },
+  });
+
+  const unlinkMut = useMutation({
+    mutationFn: (goalId) => unlinkGoalFromTicket(ticketId, goalId),
+    onSuccess: () => qc.invalidateQueries(['ticket-goals', ticketId]),
+  });
+
+  if (!goals.length && !canWrite) return null;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Goals</div>
+        {canWrite && (
+          <button onClick={() => { setAdding(true); setSearch(''); }}
+            className="text-[10px] text-indigo-600 hover:text-indigo-500 border border-indigo-200 hover:bg-indigo-50 px-1.5 py-0.5 rounded font-medium">
+            + Goal
+          </button>
+        )}
+      </div>
+
+      {adding && (
+        <div className="mb-2 relative">
+          <input
+            autoFocus
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search goals to link…"
+            className="w-full text-sm border border-indigo-300 rounded-lg px-3 py-1.5 outline-none focus:ring-1 focus:ring-indigo-300"
+          />
+          {candidates.length > 0 && (
+            <div className="absolute top-full left-0 right-0 z-20 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+              {candidates.map(g => (
+                <button key={g.id}
+                  onClick={() => linkMut.mutate(g.id)}
+                  className="w-full text-left px-3 py-2 hover:bg-indigo-50 flex items-center gap-2 text-sm">
+                  <Target size={12} className="text-slate-400 flex-shrink-0" />
+                  <span className="text-slate-700 truncate">{g.title}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          <button onClick={() => { setAdding(false); setSearch(''); }}
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+            <X size={12} />
+          </button>
+        </div>
+      )}
+
+      {goals.length > 0 && (
+        <div className="space-y-1">
+          {goals.map(g => (
+            <div key={g.id} className="flex items-center gap-2 py-1 px-2 bg-slate-50 rounded-lg group/goal">
+              <Target size={12} className="text-slate-400 flex-shrink-0" />
+              <button onClick={() => onNavigateToGoal(g.id)}
+                className="text-sm text-slate-700 hover:text-indigo-600 truncate flex-1 text-left">
+                {g.title}
+              </button>
+              {canWrite && (
+                <button onClick={() => unlinkMut.mutate(g.id)}
+                  className="opacity-0 group-hover/goal:opacity-100 text-slate-300 hover:text-red-400 transition-opacity">
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function TicketPanel({ ticketId, projectId, projectRole, onClose, onTicketChange, statuses = [] }) {
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -887,6 +984,19 @@ export default function TicketPanel({ ticketId, projectId, projectRole, onClose,
                   canWrite={canWrite}
                   onTicketClick={onTicketChange}
                 />
+
+                {/* Goals — epics contribute to goals via the goal's Epics section instead */}
+                {ticket.type !== 'epic' && (
+                  <GoalsSection
+                    ticketId={ticketId}
+                    projectId={projectId}
+                    canWrite={canWrite}
+                    onNavigateToGoal={(goalId) => {
+                      navigate(`/p/${ticket.project_key}/goals?goal=${goalId}`);
+                      onClose();
+                    }}
+                  />
+                )}
 
                 {/* Sub-tasks — always shown for epics, shown for others if children exist */}
                 {(ticket.type === 'epic' || ticket.children?.length > 0) && (
