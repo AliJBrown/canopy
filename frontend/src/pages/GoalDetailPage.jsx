@@ -14,6 +14,7 @@ import {
   getGoalProjects,
 } from '../api/orgGoals';
 import { copyToClipboard } from '../utils/clipboard';
+import { linkify } from '../utils/linkify';
 import { Avatar, TypeBadge, StatusBadge } from '../components/Badge';
 import { useApp } from '../context/AppContext';
 import client from '../api/client';
@@ -1305,7 +1306,7 @@ export default function GoalDetailPage() {
                   className={`text-sm leading-relaxed text-slate-600 whitespace-pre-wrap bg-slate-50 rounded-lg px-3 py-2.5 border border-slate-100 ${
                     canEdit ? 'cursor-text hover:border-indigo-200 hover:bg-white transition-colors' : ''
                   }`}>
-                  {goal.description}
+                  {linkify(goal.description)}
                 </div>
               ) : canEdit ? (
                 <div

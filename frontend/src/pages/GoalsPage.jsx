@@ -18,6 +18,7 @@ import { Avatar, StatusBadge, TypeBadge } from '../components/Badge';
 import { useProjectPermissions } from '../hooks/useProjectPermissions';
 import TicketPanel from '../components/TicketPanel';
 import { copyToClipboard } from '../utils/clipboard';
+import { linkify } from '../utils/linkify';
 
 function parseDateStr(d) {
   return new Date(String(d).slice(0, 10) + 'T00:00:00');
@@ -497,7 +498,7 @@ function GoalPanel({ goal, projectId, projectKey, members, canWrite, canDelete, 
           <GoalTypeBadge type={goal.goal_type} />
           <h2 className="text-base font-bold text-slate-900 mt-1.5 leading-tight">{goal.title}</h2>
           {goal.description && (
-            <p className="text-xs text-slate-500 mt-1 line-clamp-3">{goal.description}</p>
+            <p className="text-xs text-slate-500 mt-1 line-clamp-3">{linkify(goal.description)}</p>
           )}
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">

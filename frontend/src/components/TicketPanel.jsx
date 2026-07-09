@@ -12,6 +12,7 @@ import { getLabels, createLabel, updateLabel, deleteLabel } from '../api/labels'
 import { getFields, upsertFieldValues } from '../api/fields';
 import { getProjectMembers } from '../api/admin';
 import { copyToClipboard } from '../utils/clipboard';
+import { linkify } from '../utils/linkify';
 import { useApp } from '../context/AppContext';
 import { useProjectPermissions } from '../hooks/useProjectPermissions';
 import { TypeBadge, StatusBadge, Avatar, STATUS_OPTIONS, TYPE_OPTIONS, PRIORITY_OPTIONS } from './Badge';
@@ -872,7 +873,7 @@ export default function TicketPanel({ ticketId, projectId, projectRole, onClose,
                     <div onClick={() => canWrite && setIsEditingDesc(true)}
                       className={`min-h-[60px] rounded-lg p-2 -mx-2 transition-colors ${canWrite ? 'cursor-text hover:bg-slate-50' : ''}`}>
                       {ticket.description
-                        ? <p className="text-sm text-slate-700 whitespace-pre-wrap">{ticket.description}</p>
+                        ? <p className="text-sm text-slate-700 whitespace-pre-wrap">{linkify(ticket.description)}</p>
                         : <p className="text-sm text-slate-400 italic">{canWrite ? 'Click to add a description...' : 'No description'}</p>
                       }
                     </div>
