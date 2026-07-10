@@ -25,6 +25,7 @@ app.use('/api/admin', require('./routes/admin'));
 app.use('/api/tickets/:ticketId/time-logs',     require('./routes/timeLogs'));
 app.use('/api/tickets/:ticketId/attachments',  require('./routes/attachments'));
 app.use('/api/tickets/:ticketId/dependencies', require('./routes/dependencies'));
+app.use('/api/tickets/:ticketId/goals',        require('./routes/ticketGoals'));
 
 // Nested member/team routes under projects (mergeParams handled inside members.js via Router({ mergeParams: true }))
 app.use('/api/projects/:projectId/members',      require('./routes/members'));

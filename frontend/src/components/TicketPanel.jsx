@@ -1,23 +1,94 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+} from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { X, Trash2, Plus, ExternalLink, ChevronRight, Pencil, Paperclip, Download, Image, FileText, AlertCircle, Link, Maximize2, Minimize2 } from 'lucide-react';
-import { getTicket, updateTicket, deleteTicket, createTicket, getTickets } from '../api/tickets';
-import { getDependencies, addDependency, removeDependency } from '../api/dependencies';
-import { getComments, createComment, deleteComment } from '../api/comments';
+import {
+  useQuery,
+  useMutation,
+  useQueryClient,
+} from '@tanstack/react-query';
+import {
+  X,
+  Trash2,
+  Plus,
+  ExternalLink,
+  ChevronRight,
+  Pencil,
+  Paperclip,
+  Download,
+  Image,
+  FileText,
+  AlertCircle,
+  Link,
+  Target,
+  Maximize2,
+  Minimize2,
+} from 'lucide-react';
+import {
+  getTicket,
+  updateTicket,
+  deleteTicket,
+  createTicket,
+  getTickets,
+} from '../api/tickets';
+import {
+  getDependencies,
+  addDependency,
+  removeDependency,
+} from '../api/dependencies';
+import {
+  getTicketGoals,
+  getTicketGoalCandidates,
+  linkGoalToTicket,
+  unlinkGoalFromTicket,
+} from '../api/goals';
+import {
+  getComments,
+  createComment,
+  deleteComment,
+} from '../api/comments';
 import { getActivity } from '../api/activity';
-import { getAttachments, uploadAttachment, deleteAttachment } from '../api/attachments';
+import {
+  getAttachments,
+  uploadAttachment,
+  deleteAttachment,
+} from '../api/attachments';
 import { getSprints } from '../api/sprints';
-import { getLabels, createLabel, updateLabel, deleteLabel } from '../api/labels';
+import {
+  getLabels,
+  createLabel,
+  updateLabel,
+  deleteLabel,
+} from '../api/labels';
 import { getFields, upsertFieldValues } from '../api/fields';
 import { getProjectMembers } from '../api/admin';
 import { copyToClipboard } from '../utils/clipboard';
+import { linkify } from '../utils/linkify';
 import { useApp } from '../context/AppContext';
 import { useProjectPermissions } from '../hooks/useProjectPermissions';
-import { TypeBadge, StatusBadge, Avatar, STATUS_OPTIONS, TYPE_OPTIONS, PRIORITY_OPTIONS } from './Badge';
+import {
+  TypeBadge,
+  StatusBadge,
+  Avatar,
+  STATUS_OPTIONS,
+  TYPE_OPTIONS,
+  PRIORITY_OPTIONS,
+} from './Badge';
 import TimeTracker from './TimeTracker';
 
-const PRESET_COLORS = ['#6366f1','#ef4444','#f59e0b','#10b981','#3b82f6','#8b5cf6','#ec4899','#f97316'];
+const PRESET_COLORS = [
+  '#6366f1',
+  '#ef4444',
+  '#f59e0b',
+  '#10b981',
+  '#3b82f6',
+  '#8b5cf6',
+  '#ec4899',
+  '#f97316',
+];
 
 function CopyLinkButton({ url }) {
   const [status, setStatus] = useState(null); // null | 'copied' | 'failed'
@@ -30,9 +101,16 @@ function CopyLinkButton({ url }) {
     <button
       onClick={copy}
       title="Copy link"
-      className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors relative">
+      className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors relative"
+    >
       {status && (
-        <span className={`text-[10px] font-medium absolute -top-5 left-1/2 -translate-x-1/2 whitespace-nowrap bg-white border rounded px-1.5 py-0.5 shadow-sm ${status === 'copied' ? 'text-indigo-600 border-indigo-100' : 'text-red-500 border-red-100'}`}>
+        <span
+          className={`text-[10px] font-medium absolute -top-5 left-1/2 -translate-x-1/2 whitespace-nowrap bg-white border rounded px-1.5 py-0.5 shadow-sm ${
+            status === 'copied'
+              ? 'text-indigo-600 border-indigo-100'
+              : 'text-red-500 border-red-100'
+          }`}
+        >
           {status === 'copied' ? 'Copied!' : 'Copy failed'}
         </span>
       )}
@@ -43,7 +121,9 @@ function CopyLinkButton({ url }) {
 
 function useClickOutside(ref, onClose) {
   useEffect(() => {
-    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
+    const handler = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) onClose();
+    };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [ref, onClose]);
@@ -52,31 +132,52 @@ function useClickOutside(ref, onClose) {
 function Field({ label, children }) {
   return (
     <div>
-      <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">{label}</div>
+      <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">
+        {label}
+      </div>
       {children}
     </div>
   );
 }
 
 function ReadOnly({ value, fallback = '—' }) {
-  return <div className="text-sm text-slate-700">{value || <span className="text-slate-400 italic">{fallback}</span>}</div>;
+  return (
+    <div className="text-sm text-slate-700">
+      {value || (
+        <span className="text-slate-400 italic">{fallback}</span>
+      )}
+    </div>
+  );
 }
 
 function InlineSelect({ value, options, onChange, disabled }) {
   if (disabled) {
-    const opt = options.find(o => o.value === value);
+    const opt = options.find((o) => o.value === value);
     return <ReadOnly value={opt?.label} />;
   }
   return (
-    <select value={value} onChange={e => onChange(e.target.value)}
-      className="text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-300 cursor-pointer w-full">
-      {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-300 cursor-pointer w-full"
+    >
+      {options.map((o) => (
+        <option key={o.value} value={o.value}>
+          {o.label}
+        </option>
+      ))}
     </select>
   );
 }
 
 // Self-contained label picker — create, edit, delete inline
-function LabelPicker({ projectId, ticketLabels = [], onUpdate, canWrite, canManageProject }) {
+function LabelPicker({
+  projectId,
+  ticketLabels = [],
+  onUpdate,
+  canWrite,
+  canManageProject,
+}) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -85,7 +186,11 @@ function LabelPicker({ projectId, ticketLabels = [], onUpdate, canWrite, canMana
   const [editId, setEditId] = useState(null);
   const [editData, setEditData] = useState({});
   const ref = useRef(null);
-  const close = useCallback(() => { setOpen(false); setCreating(false); setEditId(null); }, []);
+  const close = useCallback(() => {
+    setOpen(false);
+    setCreating(false);
+    setEditId(null);
+  }, []);
   useClickOutside(ref, close);
 
   const { data: allLabels = [] } = useQuery({
@@ -95,26 +200,37 @@ function LabelPicker({ projectId, ticketLabels = [], onUpdate, canWrite, canMana
   });
 
   const createMut = useMutation({
-    mutationFn: () => createLabel(projectId, { name: newName.trim(), color: newColor }),
+    mutationFn: () =>
+      createLabel(projectId, {
+        name: newName.trim(),
+        color: newColor,
+      }),
     onSuccess: (label) => {
       qc.invalidateQueries(['labels', projectId]);
-      onUpdate([...new Set([...ticketLabels.map(l => l.id), label.id])]);
-      setNewName(''); setNewColor(PRESET_COLORS[0]); setCreating(false);
+      onUpdate([
+        ...new Set([...ticketLabels.map((l) => l.id), label.id]),
+      ]);
+      setNewName('');
+      setNewColor(PRESET_COLORS[0]);
+      setCreating(false);
     },
   });
   const editMut = useMutation({
     mutationFn: () => updateLabel(projectId, editId, editData),
-    onSuccess: () => { qc.invalidateQueries(['labels', projectId]); setEditId(null); },
+    onSuccess: () => {
+      qc.invalidateQueries(['labels', projectId]);
+      setEditId(null);
+    },
   });
   const deleteMut = useMutation({
     mutationFn: (id) => deleteLabel(projectId, id),
     onSuccess: () => qc.invalidateQueries(['labels', projectId]),
   });
 
-  const selectedIds = new Set(ticketLabels.map(l => l.id));
+  const selectedIds = new Set(ticketLabels.map((l) => l.id));
   const toggle = (labelId) => {
     const next = selectedIds.has(labelId)
-      ? [...selectedIds].filter(id => id !== labelId)
+      ? [...selectedIds].filter((id) => id !== labelId)
       : [...selectedIds, labelId];
     onUpdate(next);
   };
@@ -123,15 +239,23 @@ function LabelPicker({ projectId, ticketLabels = [], onUpdate, canWrite, canMana
   if (!canWrite) {
     return (
       <div className="flex flex-wrap gap-1 min-h-[24px]">
-        {ticketLabels.length === 0
-          ? <span className="text-xs text-slate-400 italic">None</span>
-          : ticketLabels.map(l => (
-              <span key={l.id} className="text-[10px] font-medium px-2 py-0.5 rounded-full"
-                style={{ background: l.color + '22', color: l.color, border: `1px solid ${l.color}44` }}>
-                {l.name}
-              </span>
-            ))
-        }
+        {ticketLabels.length === 0 ? (
+          <span className="text-xs text-slate-400 italic">None</span>
+        ) : (
+          ticketLabels.map((l) => (
+            <span
+              key={l.id}
+              className="text-[10px] font-medium px-2 py-0.5 rounded-full"
+              style={{
+                background: l.color + '22',
+                color: l.color,
+                border: `1px solid ${l.color}44`,
+              }}
+            >
+              {l.name}
+            </span>
+          ))
+        )}
       </div>
     );
   }
@@ -139,60 +263,128 @@ function LabelPicker({ projectId, ticketLabels = [], onUpdate, canWrite, canMana
   return (
     <div ref={ref} className="relative">
       <div className="flex flex-wrap gap-1 min-h-[28px] items-center">
-        {ticketLabels.map(l => (
-          <button key={l.id} onClick={() => toggle(l.id)}
+        {ticketLabels.map((l) => (
+          <button
+            key={l.id}
+            onClick={() => toggle(l.id)}
             className="flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full transition-opacity hover:opacity-70"
-            style={{ background: l.color + '22', color: l.color, border: `1px solid ${l.color}44` }}
-            title="Click to remove">
+            style={{
+              background: l.color + '22',
+              color: l.color,
+              border: `1px solid ${l.color}44`,
+            }}
+            title="Click to remove"
+          >
             {l.name} ×
           </button>
         ))}
-        <button onClick={() => setOpen(o => !o)}
-          className="flex items-center gap-0.5 text-[10px] text-slate-400 hover:text-indigo-600 px-1.5 py-0.5 rounded-full hover:bg-indigo-50 transition-colors">
-          <Plus size={10} /> {ticketLabels.length === 0 ? 'Add label' : ''}
+        <button
+          onClick={() => setOpen((o) => !o)}
+          className="flex items-center gap-0.5 text-[10px] text-slate-400 hover:text-indigo-600 px-1.5 py-0.5 rounded-full hover:bg-indigo-50 transition-colors"
+        >
+          <Plus size={10} />{' '}
+          {ticketLabels.length === 0 ? 'Add label' : ''}
         </button>
       </div>
 
       {open && (
         <div className="absolute top-full mt-1 left-0 z-50 bg-white rounded-xl shadow-lg border border-slate-100 w-52 py-1 max-h-72 overflow-y-auto">
           {allLabels.length === 0 && !creating && (
-            <div className="px-3 py-2 text-xs text-slate-400 italic">No labels yet.</div>
+            <div className="px-3 py-2 text-xs text-slate-400 italic">
+              No labels yet.
+            </div>
           )}
-          {allLabels.map(l => {
+          {allLabels.map((l) => {
             const sel = selectedIds.has(l.id);
             if (editId === l.id) {
               return (
-                <div key={l.id} className="px-3 py-2 space-y-1.5 bg-slate-50 border-b border-slate-100">
-                  <input value={editData.name ?? l.name} onChange={e => setEditData(d => ({ ...d, name: e.target.value }))}
-                    autoFocus className="w-full text-xs border border-slate-200 rounded px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-300" />
+                <div
+                  key={l.id}
+                  className="px-3 py-2 space-y-1.5 bg-slate-50 border-b border-slate-100"
+                >
+                  <input
+                    value={editData.name ?? l.name}
+                    onChange={(e) =>
+                      setEditData((d) => ({
+                        ...d,
+                        name: e.target.value,
+                      }))
+                    }
+                    autoFocus
+                    className="w-full text-xs border border-slate-200 rounded px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-300"
+                  />
                   <div className="flex gap-1">
-                    {PRESET_COLORS.map(c => (
-                      <button key={c} onClick={() => setEditData(d => ({ ...d, color: c }))}
-                        className={`w-4 h-4 rounded-full border-2 ${(editData.color ?? l.color) === c ? 'border-slate-600 scale-110' : 'border-transparent'}`}
-                        style={{ background: c }} />
+                    {PRESET_COLORS.map((c) => (
+                      <button
+                        key={c}
+                        onClick={() =>
+                          setEditData((d) => ({ ...d, color: c }))
+                        }
+                        className={`w-4 h-4 rounded-full border-2 ${
+                          (editData.color ?? l.color) === c
+                            ? 'border-slate-600 scale-110'
+                            : 'border-transparent'
+                        }`}
+                        style={{ background: c }}
+                      />
                     ))}
                   </div>
                   <div className="flex gap-1.5">
-                    <button onClick={() => editMut.mutate()} disabled={editMut.isPending}
-                      className="text-[10px] bg-indigo-600 text-white px-2 py-0.5 rounded disabled:opacity-40">Save</button>
-                    <button onClick={() => setEditId(null)} className="text-[10px] text-slate-500 px-2 py-0.5 rounded hover:bg-slate-100">Cancel</button>
+                    <button
+                      onClick={() => editMut.mutate()}
+                      disabled={editMut.isPending}
+                      className="text-[10px] bg-indigo-600 text-white px-2 py-0.5 rounded disabled:opacity-40"
+                    >
+                      Save
+                    </button>
+                    <button
+                      onClick={() => setEditId(null)}
+                      className="text-[10px] text-slate-500 px-2 py-0.5 rounded hover:bg-slate-100"
+                    >
+                      Cancel
+                    </button>
                   </div>
                 </div>
               );
             }
             return (
-              <div key={l.id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-slate-50 group">
-                <input type="checkbox" checked={sel} onChange={() => toggle(l.id)} className="accent-indigo-600 rounded flex-shrink-0" />
-                <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: l.color }} />
-                <span className="text-xs text-slate-700 flex-1 truncate">{l.name}</span>
+              <div
+                key={l.id}
+                className="flex items-center gap-2 px-3 py-1.5 hover:bg-slate-50 group"
+              >
+                <input
+                  type="checkbox"
+                  checked={sel}
+                  onChange={() => toggle(l.id)}
+                  className="accent-indigo-600 rounded flex-shrink-0"
+                />
+                <span
+                  className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                  style={{ background: l.color }}
+                />
+                <span className="text-xs text-slate-700 flex-1 truncate">
+                  {l.name}
+                </span>
                 {canManageProject && (
                   <div className="flex gap-0.5 opacity-0 group-hover:opacity-100">
-                    <button onClick={e => { e.stopPropagation(); setEditId(l.id); setEditData({ name: l.name, color: l.color }); }}
-                      className="p-0.5 text-slate-400 hover:text-slate-700 rounded">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditId(l.id);
+                        setEditData({ name: l.name, color: l.color });
+                      }}
+                      className="p-0.5 text-slate-400 hover:text-slate-700 rounded"
+                    >
                       <Pencil size={10} />
                     </button>
-                    <button onClick={e => { e.stopPropagation(); if (confirm(`Delete label "${l.name}"?`)) deleteMut.mutate(l.id); }}
-                      className="p-0.5 text-slate-400 hover:text-red-500 rounded">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (confirm(`Delete label "${l.name}"?`))
+                          deleteMut.mutate(l.id);
+                      }}
+                      className="p-0.5 text-slate-400 hover:text-red-500 rounded"
+                    >
                       <Trash2 size={10} />
                     </button>
                   </div>
@@ -203,27 +395,53 @@ function LabelPicker({ projectId, ticketLabels = [], onUpdate, canWrite, canMana
 
           {creating ? (
             <div className="px-3 py-2 space-y-1.5 border-t border-slate-100">
-              <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Label name"
-                autoFocus onKeyDown={e => e.key === 'Enter' && newName.trim() && createMut.mutate()}
-                className="w-full text-xs border border-slate-200 rounded px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-300" />
+              <input
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="Label name"
+                autoFocus
+                onKeyDown={(e) =>
+                  e.key === 'Enter' &&
+                  newName.trim() &&
+                  createMut.mutate()
+                }
+                className="w-full text-xs border border-slate-200 rounded px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-300"
+              />
               <div className="flex gap-1">
-                {PRESET_COLORS.map(c => (
-                  <button key={c} onClick={() => setNewColor(c)}
-                    className={`w-4 h-4 rounded-full border-2 ${newColor === c ? 'border-slate-600 scale-110' : 'border-transparent'}`}
-                    style={{ background: c }} />
+                {PRESET_COLORS.map((c) => (
+                  <button
+                    key={c}
+                    onClick={() => setNewColor(c)}
+                    className={`w-4 h-4 rounded-full border-2 ${
+                      newColor === c
+                        ? 'border-slate-600 scale-110'
+                        : 'border-transparent'
+                    }`}
+                    style={{ background: c }}
+                  />
                 ))}
               </div>
               <div className="flex gap-1.5">
-                <button onClick={() => newName.trim() && createMut.mutate()} disabled={!newName.trim() || createMut.isPending}
-                  className="text-[10px] bg-indigo-600 text-white px-2 py-0.5 rounded disabled:opacity-40">
+                <button
+                  onClick={() => newName.trim() && createMut.mutate()}
+                  disabled={!newName.trim() || createMut.isPending}
+                  className="text-[10px] bg-indigo-600 text-white px-2 py-0.5 rounded disabled:opacity-40"
+                >
                   {createMut.isPending ? '...' : 'Create'}
                 </button>
-                <button onClick={() => setCreating(false)} className="text-[10px] text-slate-500 px-2 py-0.5 rounded hover:bg-slate-100">Cancel</button>
+                <button
+                  onClick={() => setCreating(false)}
+                  className="text-[10px] text-slate-500 px-2 py-0.5 rounded hover:bg-slate-100"
+                >
+                  Cancel
+                </button>
               </div>
             </div>
           ) : (
-            <button onClick={() => setCreating(true)}
-              className="w-full flex items-center gap-1.5 px-3 py-2 text-xs text-slate-500 hover:bg-slate-50 hover:text-indigo-600 border-t border-slate-100 transition-colors">
+            <button
+              onClick={() => setCreating(true)}
+              className="w-full flex items-center gap-1.5 px-3 py-2 text-xs text-slate-500 hover:bg-slate-50 hover:text-indigo-600 border-t border-slate-100 transition-colors"
+            >
               <Plus size={11} /> Create new label
             </button>
           )}
@@ -233,7 +451,12 @@ function LabelPicker({ projectId, ticketLabels = [], onUpdate, canWrite, canMana
   );
 }
 
-function CustomFieldsSection({ ticketId, projectId, customFieldValues = {}, canWrite }) {
+function CustomFieldsSection({
+  ticketId,
+  projectId,
+  customFieldValues = {},
+  canWrite,
+}) {
   const qc = useQueryClient();
   const [localValues, setLocalValues] = useState({});
 
@@ -243,10 +466,13 @@ function CustomFieldsSection({ ticketId, projectId, customFieldValues = {}, canW
     enabled: !!projectId,
   });
 
-  useEffect(() => { setLocalValues(customFieldValues); }, [JSON.stringify(customFieldValues)]);
+  useEffect(() => {
+    setLocalValues(customFieldValues);
+  }, [JSON.stringify(customFieldValues)]);
 
   const upsertMut = useMutation({
-    mutationFn: (values) => upsertFieldValues(projectId, ticketId, values),
+    mutationFn: (values) =>
+      upsertFieldValues(projectId, ticketId, values),
     onSuccess: () => qc.invalidateQueries(['ticket', ticketId]),
   });
 
@@ -260,38 +486,72 @@ function CustomFieldsSection({ ticketId, projectId, customFieldValues = {}, canW
 
   return (
     <div className="space-y-3 pt-3 border-t border-slate-100">
-      <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Custom Fields</div>
-      {fields.map(f => (
+      <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+        Custom Fields
+      </div>
+      {fields.map((f) => (
         <div key={f.id}>
-          <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">{f.name}</div>
+          <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">
+            {f.name}
+          </div>
           {!canWrite ? (
             <ReadOnly value={localValues[f.id]} />
           ) : f.field_type === 'select' ? (
-            <select value={localValues[f.id] || ''} onChange={e => handleChange(f.id, e.target.value)}
-              className="text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-300 cursor-pointer w-full">
+            <select
+              value={localValues[f.id] || ''}
+              onChange={(e) => handleChange(f.id, e.target.value)}
+              className="text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-300 cursor-pointer w-full"
+            >
               <option value="">—</option>
-              {(f.options || []).map(o => <option key={o} value={o}>{o}</option>)}
+              {(f.options || []).map((o) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
             </select>
           ) : f.field_type === 'date' ? (
-            <input type="date" value={localValues[f.id] || ''} onChange={e => handleChange(f.id, e.target.value)}
-              className="text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-300 w-full" />
+            <input
+              type="date"
+              value={localValues[f.id] || ''}
+              onChange={(e) => handleChange(f.id, e.target.value)}
+              className="text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-300 w-full"
+            />
           ) : f.field_type === 'number' ? (
-            <input type="number" value={localValues[f.id] || ''} onChange={e => handleChange(f.id, e.target.value)}
-              placeholder="—" className="text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-300 w-full" />
+            <input
+              type="number"
+              value={localValues[f.id] || ''}
+              onChange={(e) => handleChange(f.id, e.target.value)}
+              placeholder="—"
+              className="text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-300 w-full"
+            />
           ) : f.field_type === 'url' ? (
             <div>
-              <input type="url" value={localValues[f.id] || ''} onChange={e => handleChange(f.id, e.target.value)}
-                placeholder="https://..." className="text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-300 w-full" />
+              <input
+                type="url"
+                value={localValues[f.id] || ''}
+                onChange={(e) => handleChange(f.id, e.target.value)}
+                placeholder="https://..."
+                className="text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-300 w-full"
+              />
               {localValues[f.id] && (
-                <a href={localValues[f.id]} target="_blank" rel="noreferrer"
-                  className="text-[10px] text-indigo-500 hover:underline flex items-center gap-1 mt-0.5">
+                <a
+                  href={localValues[f.id]}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-[10px] text-indigo-500 hover:underline flex items-center gap-1 mt-0.5"
+                >
                   <ExternalLink size={9} /> Open link
                 </a>
               )}
             </div>
           ) : (
-            <input type="text" value={localValues[f.id] || ''} onChange={e => handleChange(f.id, e.target.value)}
-              placeholder="—" className="text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-300 w-full" />
+            <input
+              type="text"
+              value={localValues[f.id] || ''}
+              onChange={(e) => handleChange(f.id, e.target.value)}
+              placeholder="—"
+              className="text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-300 w-full"
+            />
           )}
         </div>
       ))}
@@ -307,26 +567,38 @@ function renderCommentBody(body) {
     const m = part.match(/^@\[([a-f0-9-]{36}):([^\]]+)\]$/);
     if (m) {
       return (
-        <span key={i} className="inline-flex items-center bg-indigo-100 text-indigo-700 text-xs font-semibold rounded px-1 py-0.5 mx-0.5">
+        <span
+          key={i}
+          className="inline-flex items-center bg-indigo-100 text-indigo-700 text-xs font-semibold rounded px-1 py-0.5 mx-0.5"
+        >
           @{m[2]}
         </span>
       );
     }
-    return <span key={i}>{part}</span>;
+    return <span key={i}>{linkify(part)}</span>;
   });
 }
 
 // Textarea with @mention autocomplete
-function MentionTextarea({ value, onChange, onSubmit, members, placeholder, rows = 3 }) {
+function MentionTextarea({
+  value,
+  onChange,
+  onSubmit,
+  members,
+  placeholder,
+  rows = 3,
+}) {
   const [mentionSearch, setMentionSearch] = useState('');
   const [showMention, setShowMention] = useState(false);
   const [mentionStart, setMentionStart] = useState(-1);
   const textareaRef = useRef(null);
   const popoverRef = useRef(null);
 
-  const filteredMembers = members.filter(m =>
-    m.name.toLowerCase().includes(mentionSearch.toLowerCase())
-  ).slice(0, 6);
+  const filteredMembers = members
+    .filter((m) =>
+      m.name.toLowerCase().includes(mentionSearch.toLowerCase())
+    )
+    .slice(0, 6);
 
   const handleChange = (e) => {
     const val = e.target.value;
@@ -368,8 +640,12 @@ function MentionTextarea({ value, onChange, onSubmit, members, placeholder, rows
   };
 
   const handleKeyDown = (e) => {
-    if (showMention && (e.key === 'Escape')) { setShowMention(false); return; }
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && value.trim()) onSubmit?.();
+    if (showMention && e.key === 'Escape') {
+      setShowMention(false);
+      return;
+    }
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && value.trim())
+      onSubmit?.();
   };
 
   return (
@@ -384,11 +660,19 @@ function MentionTextarea({ value, onChange, onSubmit, members, placeholder, rows
         className="w-full text-sm border border-slate-200 rounded-lg p-2.5 outline-none focus:ring-1 focus:ring-indigo-300 resize-none"
       />
       {showMention && filteredMembers.length > 0 && (
-        <div ref={popoverRef}
-          className="absolute bottom-full mb-1 left-0 bg-white rounded-xl shadow-lg border border-slate-100 py-1 z-50 min-w-[160px]">
-          {filteredMembers.map(m => (
-            <button key={m.id} onMouseDown={e => { e.preventDefault(); insertMention(m); }}
-              className="flex items-center gap-2 w-full px-3 py-1.5 text-sm text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 transition-colors text-left">
+        <div
+          ref={popoverRef}
+          className="absolute bottom-full mb-1 left-0 bg-white rounded-xl shadow-lg border border-slate-100 py-1 z-50 min-w-[160px]"
+        >
+          {filteredMembers.map((m) => (
+            <button
+              key={m.id}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                insertMention(m);
+              }}
+              className="flex items-center gap-2 w-full px-3 py-1.5 text-sm text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 transition-colors text-left"
+            >
               <Avatar user={m} size="xs" />
               {m.name}
             </button>
@@ -448,18 +732,29 @@ function AttachmentsSection({ ticketId, canWrite }) {
     <div className="border-t border-slate-100 pt-4">
       <div className="flex items-center gap-2 mb-3">
         <Paperclip size={13} className="text-slate-400" />
-        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Attachments</span>
+        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+          Attachments
+        </span>
         {attachments.length > 0 && (
-          <span className="text-[10px] bg-slate-100 text-slate-500 rounded-full px-1.5 py-0.5 font-semibold">{attachments.length}</span>
+          <span className="text-[10px] bg-slate-100 text-slate-500 rounded-full px-1.5 py-0.5 font-semibold">
+            {attachments.length}
+          </span>
         )}
         {canWrite && (
-          <button onClick={() => fileRef.current?.click()}
-            className="ml-auto flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-700 font-medium">
+          <button
+            onClick={() => fileRef.current?.click()}
+            className="ml-auto flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-700 font-medium"
+          >
             <Plus size={12} /> Add file
           </button>
         )}
-        <input ref={fileRef} type="file" multiple className="hidden"
-          onChange={e => doUpload(e.target.files)} />
+        <input
+          ref={fileRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={(e) => doUpload(e.target.files)}
+        />
       </div>
 
       {uploadError && (
@@ -469,60 +764,105 @@ function AttachmentsSection({ ticketId, canWrite }) {
       )}
 
       {uploading && (
-        <div className="text-xs text-slate-400 italic mb-2">Uploading...</div>
+        <div className="text-xs text-slate-400 italic mb-2">
+          Uploading...
+        </div>
       )}
 
       {/* Drop zone (only when canWrite and no files yet) */}
       {canWrite && attachments.length === 0 && !uploading && (
         <div
-          onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setIsDragging(true);
+          }}
           onDragLeave={() => setIsDragging(false)}
-          onDrop={e => { e.preventDefault(); setIsDragging(false); doUpload(e.dataTransfer.files); }}
+          onDrop={(e) => {
+            e.preventDefault();
+            setIsDragging(false);
+            doUpload(e.dataTransfer.files);
+          }}
           onClick={() => fileRef.current?.click()}
           className={`border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-colors ${
-            isDragging ? 'border-indigo-400 bg-indigo-50' : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+            isDragging
+              ? 'border-indigo-400 bg-indigo-50'
+              : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
           }`}
         >
-          <Paperclip size={20} className="mx-auto text-slate-300 mb-1" />
-          <p className="text-xs text-slate-400">Drop files here or click to upload</p>
-          <p className="text-[10px] text-slate-300 mt-0.5">Max 25MB per file</p>
+          <Paperclip
+            size={20}
+            className="mx-auto text-slate-300 mb-1"
+          />
+          <p className="text-xs text-slate-400">
+            Drop files here or click to upload
+          </p>
+          <p className="text-[10px] text-slate-300 mt-0.5">
+            Max 25MB per file
+          </p>
         </div>
       )}
 
       {/* Drop overlay when files exist */}
       {canWrite && attachments.length > 0 && (
         <div
-          onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setIsDragging(true);
+          }}
           onDragLeave={() => setIsDragging(false)}
-          onDrop={e => { e.preventDefault(); setIsDragging(false); doUpload(e.dataTransfer.files); }}
-          className={`transition-all ${isDragging ? 'ring-2 ring-indigo-400 ring-offset-2 rounded-lg' : ''}`}
+          onDrop={(e) => {
+            e.preventDefault();
+            setIsDragging(false);
+            doUpload(e.dataTransfer.files);
+          }}
+          className={`transition-all ${
+            isDragging
+              ? 'ring-2 ring-indigo-400 ring-offset-2 rounded-lg'
+              : ''
+          }`}
         >
           <div className="space-y-2">
-            {attachments.map(att => (
-              <div key={att.id} className="flex items-center gap-2.5 p-2.5 rounded-lg border border-slate-100 hover:border-slate-200 group transition-colors">
-                {isImage(att.content_type)
-                  ? <img src={att.url} alt={att.original_name}
-                      className="w-10 h-10 object-cover rounded border border-slate-200 flex-shrink-0" />
-                  : (
-                    <div className="w-10 h-10 bg-slate-100 rounded border border-slate-200 flex items-center justify-center flex-shrink-0">
-                      <FileText size={16} className="text-slate-400" />
-                    </div>
-                  )
-                }
+            {attachments.map((att) => (
+              <div
+                key={att.id}
+                className="flex items-center gap-2.5 p-2.5 rounded-lg border border-slate-100 hover:border-slate-200 group transition-colors"
+              >
+                {isImage(att.content_type) ? (
+                  <img
+                    src={att.url}
+                    alt={att.original_name}
+                    className="w-10 h-10 object-cover rounded border border-slate-200 flex-shrink-0"
+                  />
+                ) : (
+                  <div className="w-10 h-10 bg-slate-100 rounded border border-slate-200 flex items-center justify-center flex-shrink-0">
+                    <FileText size={16} className="text-slate-400" />
+                  </div>
+                )}
                 <div className="flex-1 min-w-0">
-                  <div className="text-xs font-medium text-slate-700 truncate">{att.original_name}</div>
+                  <div className="text-xs font-medium text-slate-700 truncate">
+                    {att.original_name}
+                  </div>
                   <div className="text-[10px] text-slate-400">
-                    {att.file_size ? `${(att.file_size / 1024).toFixed(0)} KB` : ''}
+                    {att.file_size
+                      ? `${(att.file_size / 1024).toFixed(0)} KB`
+                      : ''}
                     {att.uploader?.name && ` · ${att.uploader.name}`}
                   </div>
                 </div>
-                <a href={att.url} download={att.original_name} target="_blank" rel="noreferrer"
-                  className="p-1.5 text-slate-300 hover:text-indigo-500 rounded transition-colors flex-shrink-0">
+                <a
+                  href={att.url}
+                  download={att.original_name}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="p-1.5 text-slate-300 hover:text-indigo-500 rounded transition-colors flex-shrink-0"
+                >
                   <Download size={13} />
                 </a>
                 {canWrite && (
-                  <button onClick={() => deleteMut.mutate(att.id)}
-                    className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-300 hover:text-red-400 rounded transition-colors flex-shrink-0">
+                  <button
+                    onClick={() => deleteMut.mutate(att.id)}
+                    className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-300 hover:text-red-400 rounded transition-colors flex-shrink-0"
+                  >
                     <Trash2 size={13} />
                   </button>
                 )}
@@ -541,13 +881,22 @@ function AttachmentsSection({ ticketId, canWrite }) {
 }
 
 const DEP_LABELS = {
-  blocking:   { label: 'Blocks',      empty: 'Not blocking any tickets' },
-  blocked_by: { label: 'Blocked by',  empty: 'No blockers' },
-  relates_to: { label: 'Related',     empty: 'No related tickets' },
+  blocking: { label: 'Blocks', empty: 'Not blocking any tickets' },
+  blocked_by: { label: 'Blocked by', empty: 'No blockers' },
+  relates_to: { label: 'Related', empty: 'No related tickets' },
 };
-const DEP_TYPE_MAP = { blocking: 'blocks', blocked_by: 'blocks', relates_to: 'relates_to' };
+const DEP_TYPE_MAP = {
+  blocking: 'blocks',
+  blocked_by: 'blocks',
+  relates_to: 'relates_to',
+};
 
-function DependenciesSection({ ticketId, projectId, canWrite, onTicketClick }) {
+function DependenciesSection({
+  ticketId,
+  projectId,
+  canWrite,
+  onTicketClick,
+}) {
   const qc = useQueryClient();
   const [addingType, setAddingType] = useState(null);
   const [search, setSearch] = useState('');
@@ -565,7 +914,8 @@ function DependenciesSection({ ticketId, projectId, canWrite, onTicketClick }) {
   });
 
   const addMut = useMutation({
-    mutationFn: ({ dependency_id, type }) => addDependency(ticketId, dependency_id, type),
+    mutationFn: ({ dependency_id, type }) =>
+      addDependency(ticketId, dependency_id, type),
     onSuccess: () => {
       qc.invalidateQueries(['dependencies', ticketId]);
       setAddingType(null);
@@ -579,9 +929,18 @@ function DependenciesSection({ ticketId, projectId, canWrite, onTicketClick }) {
   });
 
   const allDeps = [
-    ...(deps?.blocking   || []).map(t => ({ ...t, _group: 'blocking' })),
-    ...(deps?.blocked_by || []).map(t => ({ ...t, _group: 'blocked_by' })),
-    ...(deps?.relates_to || []).map(t => ({ ...t, _group: 'relates_to' })),
+    ...(deps?.blocking || []).map((t) => ({
+      ...t,
+      _group: 'blocking',
+    })),
+    ...(deps?.blocked_by || []).map((t) => ({
+      ...t,
+      _group: 'blocked_by',
+    })),
+    ...(deps?.relates_to || []).map((t) => ({
+      ...t,
+      _group: 'relates_to',
+    })),
   ];
   const hasDeps = allDeps.length > 0;
 
@@ -590,12 +949,20 @@ function DependenciesSection({ ticketId, projectId, canWrite, onTicketClick }) {
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
-        <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Dependencies</div>
+        <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+          Dependencies
+        </div>
         {canWrite && (
           <div className="flex items-center gap-1">
-            {['blocking', 'blocked_by', 'relates_to'].map(t => (
-              <button key={t} onClick={() => { setAddingType(t); setSearch(''); }}
-                className="text-[10px] text-indigo-600 hover:text-indigo-500 border border-indigo-200 hover:bg-indigo-50 px-1.5 py-0.5 rounded font-medium">
+            {['blocking', 'blocked_by', 'relates_to'].map((t) => (
+              <button
+                key={t}
+                onClick={() => {
+                  setAddingType(t);
+                  setSearch('');
+                }}
+                className="text-[10px] text-indigo-600 hover:text-indigo-500 border border-indigo-200 hover:bg-indigo-50 px-1.5 py-0.5 rounded font-medium"
+              >
                 + {DEP_LABELS[t].label}
               </button>
             ))}
@@ -609,50 +976,85 @@ function DependenciesSection({ ticketId, projectId, canWrite, onTicketClick }) {
           <input
             autoFocus
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={(e) => setSearch(e.target.value)}
             placeholder={`Search tickets to add as "${DEP_LABELS[addingType].label}"…`}
             className="w-full text-sm border border-indigo-300 rounded-lg px-3 py-1.5 outline-none focus:ring-1 focus:ring-indigo-300"
           />
           {searchResults?.tickets?.length > 0 && (
             <div className="absolute top-full left-0 right-0 z-20 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-              {searchResults.tickets.filter(t => t.id !== ticketId).map(t => (
-                <button key={t.id}
-                  onClick={() => addMut.mutate({ dependency_id: t.id, type: DEP_TYPE_MAP[addingType] })}
-                  className="w-full text-left px-3 py-2 hover:bg-indigo-50 flex items-center gap-2 text-sm">
-                  <span className="text-[11px] font-mono text-slate-400">{t.ticket_key}</span>
-                  <span className="text-slate-700 truncate">{t.title}</span>
-                </button>
-              ))}
+              {searchResults.tickets
+                .filter((t) => t.id !== ticketId)
+                .map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() =>
+                      addMut.mutate({
+                        dependency_id: t.id,
+                        type: DEP_TYPE_MAP[addingType],
+                      })
+                    }
+                    className="w-full text-left px-3 py-2 hover:bg-indigo-50 flex items-center gap-2 text-sm"
+                  >
+                    <span className="text-[11px] font-mono text-slate-400">
+                      {t.ticket_key}
+                    </span>
+                    <span className="text-slate-700 truncate">
+                      {t.title}
+                    </span>
+                  </button>
+                ))}
             </div>
           )}
-          <button onClick={() => { setAddingType(null); setSearch(''); }}
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+          <button
+            onClick={() => {
+              setAddingType(null);
+              setSearch('');
+            }}
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+          >
             <X size={12} />
           </button>
         </div>
       )}
 
       {/* Grouped dependency list */}
-      {(['blocking', 'blocked_by', 'relates_to']).map(group => {
+      {['blocking', 'blocked_by', 'relates_to'].map((group) => {
         const items = deps?.[group] || [];
         if (!items.length) return null;
         return (
           <div key={group} className="mb-2">
-            <div className="text-[10px] font-semibold text-slate-400 uppercase mb-1">{DEP_LABELS[group].label}</div>
+            <div className="text-[10px] font-semibold text-slate-400 uppercase mb-1">
+              {DEP_LABELS[group].label}
+            </div>
             <div className="space-y-1">
-              {items.map(t => (
-                <div key={t.id} className="flex items-center gap-2 py-1 px-2 bg-slate-50 rounded-lg group/dep">
-                  <span className="text-[11px] font-mono text-slate-400">{t.ticket_key}</span>
-                  <button onClick={() => onTicketClick(t.id)}
-                    className="text-sm text-slate-700 hover:text-indigo-600 truncate flex-1 text-left">
+              {items.map((t) => (
+                <div
+                  key={t.id}
+                  className="flex items-center gap-2 py-1 px-2 bg-slate-50 rounded-lg group/dep"
+                >
+                  <span className="text-[11px] font-mono text-slate-400">
+                    {t.ticket_key}
+                  </span>
+                  <button
+                    onClick={() => onTicketClick(t.id)}
+                    className="text-sm text-slate-700 hover:text-indigo-600 truncate flex-1 text-left"
+                  >
                     {t.title}
                   </button>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
-                    t.status === 'done' ? 'bg-green-100 text-green-700' : 'bg-slate-200 text-slate-500'
-                  }`}>{t.status}</span>
+                  <span
+                    className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+                      t.status === 'done'
+                        ? 'bg-green-100 text-green-700'
+                        : 'bg-slate-200 text-slate-500'
+                    }`}
+                  >
+                    {t.status}
+                  </span>
                   {canWrite && (
-                    <button onClick={() => removeMut.mutate(t.dep_id)}
-                      className="opacity-0 group-hover/dep:opacity-100 text-slate-300 hover:text-red-400 transition-opacity">
+                    <button
+                      onClick={() => removeMut.mutate(t.dep_id)}
+                      className="opacity-0 group-hover/dep:opacity-100 text-slate-300 hover:text-red-400 transition-opacity"
+                    >
                       <X size={12} />
                     </button>
                   )}
@@ -666,11 +1068,152 @@ function DependenciesSection({ ticketId, projectId, canWrite, onTicketClick }) {
   );
 }
 
-export default function TicketPanel({ ticketId, projectId, projectRole, onClose, onTicketChange, statuses = [] }) {
+function GoalsSection({
+  ticketId,
+  projectId,
+  canWrite,
+  onNavigateToGoal,
+}) {
+  const qc = useQueryClient();
+  const [adding, setAdding] = useState(false);
+  const [search, setSearch] = useState('');
+
+  const { data: goals = [] } = useQuery({
+    queryKey: ['ticket-goals', ticketId],
+    queryFn: () => getTicketGoals(ticketId),
+    enabled: !!ticketId,
+  });
+
+  const { data: candidates = [] } = useQuery({
+    queryKey: ['ticket-goal-candidates', ticketId, search],
+    queryFn: () => getTicketGoalCandidates(ticketId, search),
+    enabled: adding,
+  });
+
+  const linkMut = useMutation({
+    mutationFn: (goalId) => linkGoalToTicket(ticketId, goalId),
+    onSuccess: () => {
+      qc.invalidateQueries(['ticket-goals', ticketId]);
+      setAdding(false);
+      setSearch('');
+    },
+  });
+
+  const unlinkMut = useMutation({
+    mutationFn: (goalId) => unlinkGoalFromTicket(ticketId, goalId),
+    onSuccess: () => qc.invalidateQueries(['ticket-goals', ticketId]),
+  });
+
+  if (!goals.length && !canWrite) return null;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+          Goals
+        </div>
+        {canWrite && (
+          <button
+            onClick={() => {
+              setAdding(true);
+              setSearch('');
+            }}
+            className="text-[10px] text-indigo-600 hover:text-indigo-500 border border-indigo-200 hover:bg-indigo-50 px-1.5 py-0.5 rounded font-medium"
+          >
+            + Goal
+          </button>
+        )}
+      </div>
+
+      {adding && (
+        <div className="mb-2 relative">
+          <input
+            autoFocus
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search goals to link…"
+            className="w-full text-sm border border-indigo-300 rounded-lg px-3 py-1.5 outline-none focus:ring-1 focus:ring-indigo-300"
+          />
+          {candidates.length > 0 && (
+            <div className="absolute top-full left-0 right-0 z-20 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+              {candidates.map((g) => (
+                <button
+                  key={g.id}
+                  onClick={() => linkMut.mutate(g.id)}
+                  className="w-full text-left px-3 py-2 hover:bg-indigo-50 flex items-center gap-2 text-sm"
+                >
+                  <Target
+                    size={12}
+                    className="text-slate-400 flex-shrink-0"
+                  />
+                  <span className="text-slate-700 truncate">
+                    {g.title}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+          <button
+            onClick={() => {
+              setAdding(false);
+              setSearch('');
+            }}
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+          >
+            <X size={12} />
+          </button>
+        </div>
+      )}
+
+      {goals.length > 0 && (
+        <div className="space-y-1">
+          {goals.map((g) => (
+            <div
+              key={g.id}
+              className="flex items-center gap-2 py-1 px-2 bg-slate-50 rounded-lg group/goal"
+            >
+              <Target
+                size={12}
+                className="text-slate-400 flex-shrink-0"
+              />
+              <button
+                onClick={() => onNavigateToGoal(g.id)}
+                className="text-sm text-slate-700 hover:text-indigo-600 truncate flex-1 text-left"
+              >
+                {g.title}
+              </button>
+              {canWrite && (
+                <button
+                  onClick={() => unlinkMut.mutate(g.id)}
+                  className="opacity-0 group-hover/goal:opacity-100 text-slate-300 hover:text-red-400 transition-opacity"
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function TicketPanel({
+  ticketId,
+  projectId,
+  projectRole,
+  onClose,
+  onTicketChange,
+  statuses = [],
+}) {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { user } = useApp();
-  const { canWrite, canDelete, canManageProject } = useProjectPermissions({ id: projectId, my_role: projectRole });
+  const {
+    canWrite,
+    canDelete,
+    canManageProject,
+  } = useProjectPermissions({ id: projectId, my_role: projectRole });
 
   const [commentBody, setCommentBody] = useState('');
   const [updateError, setUpdateError] = useState('');
@@ -709,23 +1252,36 @@ export default function TicketPanel({ ticketId, projectId, projectRole, onClose,
     queryFn: () => getProjectMembers(projectId),
     enabled: !!projectId,
   });
-  const assignableUsers = projectMembers.filter(m => m.role !== 'viewer');
+  const assignableUsers = projectMembers.filter(
+    (m) => m.role !== 'viewer'
+  );
   // Always include the current assignee so their name shows even if they became a viewer
-  const assigneeInList = assignableUsers.some(u => u.id === ticket?.assignee_id);
-  const assigneeOptions = assigneeInList || !ticket?.assignee_id
-    ? assignableUsers
-    : [...assignableUsers, projectMembers.find(m => m.id === ticket.assignee_id)].filter(Boolean);
+  const assigneeInList = assignableUsers.some(
+    (u) => u.id === ticket?.assignee_id
+  );
+  const assigneeOptions =
+    assigneeInList || !ticket?.assignee_id
+      ? assignableUsers
+      : [
+          ...assignableUsers,
+          projectMembers.find((m) => m.id === ticket.assignee_id),
+        ].filter(Boolean);
 
   const { data: sprints = [] } = useQuery({
     queryKey: ['sprints', projectId],
     queryFn: () => getSprints(projectId),
     enabled: !!projectId,
   });
-  const activeSprints = sprints.filter(s => s.status !== 'completed');
+  const activeSprints = sprints.filter(
+    (s) => s.status !== 'completed'
+  );
 
   const { data: siblings = [] } = useQuery({
     queryKey: ['tickets', { projectId }],
-    queryFn: async () => { const res = await getTickets({ projectId }); return res.tickets || res; },
+    queryFn: async () => {
+      const res = await getTickets({ projectId });
+      return res.tickets || res;
+    },
     enabled: !!projectId && canWrite,
   });
 
@@ -733,7 +1289,10 @@ export default function TicketPanel({ ticketId, projectId, projectRole, onClose,
     mutationFn: (data) => updateTicket(ticketId, data),
     onSuccess: (updated) => {
       setUpdateError('');
-      qc.setQueryData(['ticket', ticketId], old => ({ ...old, ...updated }));
+      qc.setQueryData(['ticket', ticketId], (old) => ({
+        ...old,
+        ...updated,
+      }));
       qc.invalidateQueries(['tickets']);
       onTicketChange?.();
     },
@@ -744,11 +1303,20 @@ export default function TicketPanel({ ticketId, projectId, projectRole, onClose,
 
   const remove = useMutation({
     mutationFn: () => deleteTicket(ticketId),
-    onSuccess: () => { qc.invalidateQueries(['tickets']); onClose(); },
+    onSuccess: () => {
+      qc.invalidateQueries(['tickets']);
+      onClose();
+    },
   });
 
   const addSubtask = useMutation({
-    mutationFn: (title) => createTicket({ project_id: projectId, title, type: subtaskType, parent_id: ticketId }),
+    mutationFn: (title) =>
+      createTicket({
+        project_id: projectId,
+        title,
+        type: subtaskType,
+        parent_id: ticketId,
+      }),
     onSuccess: () => {
       qc.invalidateQueries(['ticket', ticketId]);
       qc.invalidateQueries(['tickets']);
@@ -758,85 +1326,155 @@ export default function TicketPanel({ ticketId, projectId, projectRole, onClose,
   });
 
   const addComment = useMutation({
-    mutationFn: () => createComment({ ticket_id: ticketId, author_id: user?.id, body: commentBody }),
-    onSuccess: () => { qc.invalidateQueries(['comments', ticketId]); qc.invalidateQueries(['activity', ticketId]); setCommentBody(''); },
+    mutationFn: () =>
+      createComment({
+        ticket_id: ticketId,
+        author_id: user?.id,
+        body: commentBody,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries(['comments', ticketId]);
+      qc.invalidateQueries(['activity', ticketId]);
+      setCommentBody('');
+    },
   });
 
   const removeComment = useMutation({
     mutationFn: (id) => deleteComment(id),
-    onSuccess: () => { qc.invalidateQueries(['comments', ticketId]); qc.invalidateQueries(['activity', ticketId]); },
+    onSuccess: () => {
+      qc.invalidateQueries(['comments', ticketId]);
+      qc.invalidateQueries(['activity', ticketId]);
+    },
   });
 
   useEffect(() => {
-    if (ticket) { setTitleDraft(ticket.title); setDescDraft(ticket.description || ''); }
+    if (ticket) {
+      setTitleDraft(ticket.title);
+      setDescDraft(ticket.description || '');
+    }
   }, [ticket?.id]);
 
   useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    const onKey = (e) => {
+      if (e.key === 'Escape') onClose();
+    };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
   if (!ticketId) return null;
 
-  const sprintName = activeSprints.find(s => s.id === ticket?.sprint_id)?.name;
-  const assigneeName = projectMembers.find(m => m.id === ticket?.assignee_id)?.name;
-  const reporterName = projectMembers.find(m => m.id === ticket?.reporter_id)?.name;
+  const sprintName = activeSprints.find(
+    (s) => s.id === ticket?.sprint_id
+  )?.name;
+  const assigneeName = projectMembers.find(
+    (m) => m.id === ticket?.assignee_id
+  )?.name;
+  const reporterName = projectMembers.find(
+    (m) => m.id === ticket?.reporter_id
+  )?.name;
   const parentKey = ticket?.parent?.ticket_key;
 
   return (
     <>
-      {!expanded && <div className="fixed inset-0 bg-black/20 z-30" onClick={onClose} />}
-      <aside className={`fixed top-0 bottom-0 bg-white shadow-2xl z-40 flex flex-col overflow-hidden transition-all duration-200 ${expanded ? 'left-56 right-0' : 'right-0 w-[640px]'}`}>
+      {!expanded && (
+        <div
+          className="fixed inset-0 bg-black/20 z-30"
+          onClick={onClose}
+        />
+      )}
+      <aside
+        className={`fixed top-0 bottom-0 bg-white shadow-2xl z-40 flex flex-col overflow-hidden transition-all duration-200 ${
+          expanded ? 'left-56 right-0' : 'right-0 w-[640px]'
+        }`}
+      >
         {isLoading ? (
-          <div className="flex items-center justify-center h-full text-slate-400">Loading...</div>
+          <div className="flex items-center justify-center h-full text-slate-400">
+            Loading...
+          </div>
         ) : !ticket ? (
-          <div className="flex items-center justify-center h-full text-slate-400">Ticket not found</div>
+          <div className="flex items-center justify-center h-full text-slate-400">
+            Ticket not found
+          </div>
         ) : (
           <>
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-3 border-b border-slate-100 flex-shrink-0">
               <div className="flex items-center gap-1.5 text-sm text-slate-500 min-w-0">
                 <button
-                  onClick={() => { navigate(`/p/${ticket.project_key}/board`); onClose(); }}
+                  onClick={() => {
+                    navigate(`/p/${ticket.project_key}/board`);
+                    onClose();
+                  }}
                   className="font-mono text-xs text-slate-400 hover:text-indigo-600 transition-colors flex-shrink-0"
                 >
                   {ticket.project_key}
                 </button>
-                <ChevronRight size={11} className="text-slate-300 flex-shrink-0" />
+                <ChevronRight
+                  size={11}
+                  className="text-slate-300 flex-shrink-0"
+                />
                 {ticket.parent && (
                   <>
                     <button
-                      onClick={() => onTicketChange?.(ticket.parent.id)}
+                      onClick={() =>
+                        onTicketChange?.(ticket.parent.id)
+                      }
                       className="flex items-center gap-1 hover:text-indigo-600 transition-colors flex-shrink-0"
                     >
                       <TypeBadge type={ticket.parent.type} />
-                      <span className="font-mono text-xs">{ticket.parent.ticket_key}</span>
+                      <span className="font-mono text-xs">
+                        {ticket.parent.ticket_key}
+                      </span>
                     </button>
-                    <ChevronRight size={11} className="text-slate-300 flex-shrink-0" />
+                    <ChevronRight
+                      size={11}
+                      className="text-slate-300 flex-shrink-0"
+                    />
                   </>
                 )}
                 <TypeBadge type={ticket.type} />
-                <span className="font-mono font-semibold text-slate-700 flex-shrink-0">{ticket.ticket_key}</span>
+                <span className="font-mono font-semibold text-slate-700 flex-shrink-0">
+                  {ticket.ticket_key}
+                </span>
               </div>
               <div className="flex items-center gap-1">
                 {!canWrite && (
-                  <span className="text-[10px] text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full font-medium mr-1">View only</span>
+                  <span className="text-[10px] text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full font-medium mr-1">
+                    View only
+                  </span>
                 )}
-                <CopyLinkButton url={`${window.location.origin}/p/${ticket.project_key}?ticket=${ticket.id}`} />
-                <button onClick={() => setExpanded(e => !e)}
+                <CopyLinkButton
+                  url={`${window.location.origin}/p/${ticket.project_key}?ticket=${ticket.id}`}
+                />
+                <button
+                  onClick={() => setExpanded((e) => !e)}
                   className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded transition-colors"
-                  title={expanded ? 'Collapse' : 'Expand to full screen'}>
-                  {expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+                  title={
+                    expanded ? 'Collapse' : 'Expand to full screen'
+                  }
+                >
+                  {expanded ? (
+                    <Minimize2 size={15} />
+                  ) : (
+                    <Maximize2 size={15} />
+                  )}
                 </button>
                 {canDelete && (
-                  <button onClick={() => { if (confirm('Delete this ticket?')) remove.mutate(); }}
-                    className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors">
+                  <button
+                    onClick={() => {
+                      if (confirm('Delete this ticket?'))
+                        remove.mutate();
+                    }}
+                    className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+                  >
                     <Trash2 size={15} />
                   </button>
                 )}
-                <button onClick={onClose}
-                  className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded transition-colors">
+                <button
+                  onClick={onClose}
+                  className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded transition-colors"
+                >
                   <X size={15} />
                 </button>
               </div>
@@ -847,40 +1485,89 @@ export default function TicketPanel({ ticketId, projectId, projectRole, onClose,
               <div className="flex-1 overflow-y-auto scrollbar-thin px-6 py-4 space-y-5">
                 {/* Title */}
                 {canWrite && isEditingTitle ? (
-                  <input value={titleDraft} onChange={e => setTitleDraft(e.target.value)}
-                    onBlur={() => { update.mutate({ title: titleDraft }); setIsEditingTitle(false); }}
-                    onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') setIsEditingTitle(false); }}
-                    autoFocus className="w-full text-xl font-bold text-slate-900 border-b-2 border-indigo-400 outline-none pb-1" />
+                  <input
+                    value={titleDraft}
+                    onChange={(e) => setTitleDraft(e.target.value)}
+                    onBlur={() => {
+                      update.mutate({ title: titleDraft });
+                      setIsEditingTitle(false);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') e.target.blur();
+                      if (e.key === 'Escape')
+                        setIsEditingTitle(false);
+                    }}
+                    autoFocus
+                    className="w-full text-xl font-bold text-slate-900 border-b-2 border-indigo-400 outline-none pb-1"
+                  />
                 ) : (
                   <h1
-                    onClick={() => canWrite && setIsEditingTitle(true)}
-                    className={`text-xl font-bold text-slate-900 rounded px-1 -mx-1 py-0.5 transition-colors ${canWrite ? 'cursor-text hover:bg-slate-50' : ''}`}>
+                    onClick={() =>
+                      canWrite && setIsEditingTitle(true)
+                    }
+                    className={`text-xl font-bold text-slate-900 rounded px-1 -mx-1 py-0.5 transition-colors ${
+                      canWrite ? 'cursor-text hover:bg-slate-50' : ''
+                    }`}
+                  >
                     {ticket.title}
                   </h1>
                 )}
 
                 {/* Description */}
                 <div>
-                  <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Description</div>
+                  <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                    Description
+                  </div>
                   {canWrite && isEditingDesc ? (
                     <div>
-                      <textarea value={descDraft} onChange={e => setDescDraft(e.target.value)} autoFocus rows={6}
+                      <textarea
+                        value={descDraft}
+                        onChange={(e) => setDescDraft(e.target.value)}
+                        autoFocus
+                        rows={6}
                         placeholder="Add a description..."
-                        className="w-full text-sm text-slate-700 border border-indigo-300 rounded-lg p-3 outline-none focus:ring-1 focus:ring-indigo-300 resize-none" />
+                        className="w-full text-sm text-slate-700 border border-indigo-300 rounded-lg p-3 outline-none focus:ring-1 focus:ring-indigo-300 resize-none"
+                      />
                       <div className="flex gap-2 mt-2">
-                        <button onClick={() => { update.mutate({ description: descDraft }); setIsEditingDesc(false); }}
-                          className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded font-medium hover:bg-indigo-500">Save</button>
-                        <button onClick={() => setIsEditingDesc(false)}
-                          className="text-xs text-slate-500 px-3 py-1.5 rounded hover:bg-slate-100">Cancel</button>
+                        <button
+                          onClick={() => {
+                            update.mutate({ description: descDraft });
+                            setIsEditingDesc(false);
+                          }}
+                          className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded font-medium hover:bg-indigo-500"
+                        >
+                          Save
+                        </button>
+                        <button
+                          onClick={() => setIsEditingDesc(false)}
+                          className="text-xs text-slate-500 px-3 py-1.5 rounded hover:bg-slate-100"
+                        >
+                          Cancel
+                        </button>
                       </div>
                     </div>
                   ) : (
-                    <div onClick={() => canWrite && setIsEditingDesc(true)}
-                      className={`min-h-[60px] rounded-lg p-2 -mx-2 transition-colors ${canWrite ? 'cursor-text hover:bg-slate-50' : ''}`}>
-                      {ticket.description
-                        ? <p className="text-sm text-slate-700 whitespace-pre-wrap">{ticket.description}</p>
-                        : <p className="text-sm text-slate-400 italic">{canWrite ? 'Click to add a description...' : 'No description'}</p>
+                    <div
+                      onClick={() =>
+                        canWrite && setIsEditingDesc(true)
                       }
+                      className={`min-h-[60px] rounded-lg p-2 -mx-2 transition-colors ${
+                        canWrite
+                          ? 'cursor-text hover:bg-slate-50'
+                          : ''
+                      }`}
+                    >
+                      {ticket.description ? (
+                        <p className="text-sm text-slate-700 whitespace-pre-wrap">
+                          {linkify(ticket.description)}
+                        </p>
+                      ) : (
+                        <p className="text-sm text-slate-400 italic">
+                          {canWrite
+                            ? 'Click to add a description...'
+                            : 'No description'}
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>
@@ -893,20 +1580,44 @@ export default function TicketPanel({ ticketId, projectId, projectRole, onClose,
                   onTicketClick={onTicketChange}
                 />
 
+                {/* Goals — epics contribute to goals via the goal's Epics section instead */}
+                {ticket.type !== 'epic' && (
+                  <GoalsSection
+                    ticketId={ticketId}
+                    projectId={projectId}
+                    canWrite={canWrite}
+                    onNavigateToGoal={(goalId) => {
+                      navigate(
+                        `/p/${ticket.project_key}/goals?goal=${goalId}`
+                      );
+                      onClose();
+                    }}
+                  />
+                )}
+
                 {/* Sub-tasks — always shown for epics, shown for others if children exist */}
-                {(ticket.type === 'epic' || ticket.children?.length > 0) && (
+                {(ticket.type === 'epic' ||
+                  ticket.children?.length > 0) && (
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                        {ticket.type === 'epic' ? 'Sub-tasks' : 'Child Tickets'}
+                        {ticket.type === 'epic'
+                          ? 'Sub-tasks'
+                          : 'Child Tickets'}
                         {ticket.children?.length > 0 && (
-                          <span className="ml-1.5 text-slate-400 font-normal normal-case">({ticket.children.length})</span>
+                          <span className="ml-1.5 text-slate-400 font-normal normal-case">
+                            ({ticket.children.length})
+                          </span>
                         )}
                       </div>
                       {canWrite && (
                         <button
-                          onClick={() => { setAddingSubtask(true); setSubtaskTitle(''); }}
-                          className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-500 font-medium">
+                          onClick={() => {
+                            setAddingSubtask(true);
+                            setSubtaskTitle('');
+                          }}
+                          className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-500 font-medium"
+                        >
                           <Plus size={12} /> Add
                         </button>
                       )}
@@ -918,10 +1629,19 @@ export default function TicketPanel({ ticketId, projectId, projectRole, onClose,
                         <input
                           autoFocus
                           value={subtaskTitle}
-                          onChange={e => setSubtaskTitle(e.target.value)}
-                          onKeyDown={e => {
-                            if (e.key === 'Enter' && subtaskTitle.trim()) addSubtask.mutate(subtaskTitle.trim());
-                            if (e.key === 'Escape') { setAddingSubtask(false); setSubtaskTitle(''); }
+                          onChange={(e) =>
+                            setSubtaskTitle(e.target.value)
+                          }
+                          onKeyDown={(e) => {
+                            if (
+                              e.key === 'Enter' &&
+                              subtaskTitle.trim()
+                            )
+                              addSubtask.mutate(subtaskTitle.trim());
+                            if (e.key === 'Escape') {
+                              setAddingSubtask(false);
+                              setSubtaskTitle('');
+                            }
                           }}
                           placeholder="Sub-task title..."
                           className="w-full text-sm bg-white border border-slate-200 rounded px-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-300"
@@ -929,38 +1649,69 @@ export default function TicketPanel({ ticketId, projectId, projectRole, onClose,
                         <div className="flex items-center gap-2">
                           <select
                             value={subtaskType}
-                            onChange={e => setSubtaskType(e.target.value)}
-                            className="text-xs bg-white border border-slate-200 rounded px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-300 text-slate-600">
+                            onChange={(e) =>
+                              setSubtaskType(e.target.value)
+                            }
+                            className="text-xs bg-white border border-slate-200 rounded px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-300 text-slate-600"
+                          >
                             <option value="task">Task</option>
                             <option value="bug">Bug</option>
                             <option value="story">Story</option>
                             <option value="feature">Feature</option>
                           </select>
                           <button
-                            onClick={() => subtaskTitle.trim() && addSubtask.mutate(subtaskTitle.trim())}
-                            disabled={!subtaskTitle.trim() || addSubtask.isPending}
-                            className="text-xs bg-indigo-600 text-white px-3 py-1 rounded font-medium hover:bg-indigo-500 disabled:opacity-40">
+                            onClick={() =>
+                              subtaskTitle.trim() &&
+                              addSubtask.mutate(subtaskTitle.trim())
+                            }
+                            disabled={
+                              !subtaskTitle.trim() ||
+                              addSubtask.isPending
+                            }
+                            className="text-xs bg-indigo-600 text-white px-3 py-1 rounded font-medium hover:bg-indigo-500 disabled:opacity-40"
+                          >
                             {addSubtask.isPending ? '...' : 'Create'}
                           </button>
-                          <button onClick={() => { setAddingSubtask(false); setSubtaskTitle(''); }}
-                            className="text-xs text-slate-400 hover:text-slate-600 px-1">Cancel</button>
+                          <button
+                            onClick={() => {
+                              setAddingSubtask(false);
+                              setSubtaskTitle('');
+                            }}
+                            className="text-xs text-slate-400 hover:text-slate-600 px-1"
+                          >
+                            Cancel
+                          </button>
                         </div>
                       </div>
                     )}
 
                     {ticket.children?.length > 0 ? (
                       <div className="space-y-1.5">
-                        {ticket.children.map(child => {
-                          const doneCount = child.epic_progress?.done || 0;
-                          const totalCount = child.epic_progress?.total || 0;
+                        {ticket.children.map((child) => {
+                          const doneCount =
+                            child.epic_progress?.done || 0;
+                          const totalCount =
+                            child.epic_progress?.total || 0;
                           return (
-                            <div key={child.id} onClick={() => onTicketChange?.(child.id)}
-                              className="flex items-center gap-2 p-2.5 rounded-lg border border-slate-100 hover:border-indigo-200 hover:bg-indigo-50/30 cursor-pointer transition-colors group">
+                            <div
+                              key={child.id}
+                              onClick={() =>
+                                onTicketChange?.(child.id)
+                              }
+                              className="flex items-center gap-2 p-2.5 rounded-lg border border-slate-100 hover:border-indigo-200 hover:bg-indigo-50/30 cursor-pointer transition-colors group"
+                            >
                               <TypeBadge type={child.type} />
-                              <span className="text-[11px] text-slate-400 font-mono flex-shrink-0">{child.ticket_key}</span>
-                              <span className="text-sm text-slate-700 flex-1 truncate">{child.title}</span>
+                              <span className="text-[11px] text-slate-400 font-mono flex-shrink-0">
+                                {child.ticket_key}
+                              </span>
+                              <span className="text-sm text-slate-700 flex-1 truncate">
+                                {child.title}
+                              </span>
                               <StatusBadge status={child.status} />
-                              <ExternalLink size={12} className="text-slate-300 group-hover:text-indigo-400 flex-shrink-0" />
+                              <ExternalLink
+                                size={12}
+                                className="text-slate-300 group-hover:text-indigo-400 flex-shrink-0"
+                              />
                             </div>
                           );
                         })}
@@ -968,7 +1719,10 @@ export default function TicketPanel({ ticketId, projectId, projectRole, onClose,
                     ) : (
                       !addingSubtask && (
                         <p className="text-xs text-slate-400 italic py-1">
-                          No sub-tasks yet.{canWrite ? ' Click Add to create one.' : ''}
+                          No sub-tasks yet.
+                          {canWrite
+                            ? ' Click Add to create one.'
+                            : ''}
                         </p>
                       )
                     )}
@@ -977,22 +1731,39 @@ export default function TicketPanel({ ticketId, projectId, projectRole, onClose,
 
                 {/* Time tracking */}
                 <div className="border-t border-slate-100 pt-4">
-                  <TimeTracker ticketId={ticketId} estimateHours={ticket.estimate_hours} canWrite={canWrite} />
+                  <TimeTracker
+                    ticketId={ticketId}
+                    estimateHours={ticket.estimate_hours}
+                    canWrite={canWrite}
+                  />
                 </div>
 
                 {/* Attachments */}
-                <AttachmentsSection ticketId={ticketId} canWrite={canWrite} />
+                <AttachmentsSection
+                  ticketId={ticketId}
+                  canWrite={canWrite}
+                />
 
                 {/* Activity & Comments */}
                 <div>
                   <div className="flex items-center justify-between mb-3">
-                    <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Activity</div>
+                    <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      Activity
+                    </div>
                     <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-0.5">
-                      {[['all', 'All'], ['comments', 'Comments']].map(([val, label]) => (
-                        <button key={val} onClick={() => setActivityFilter(val)}
+                      {[
+                        ['all', 'All'],
+                        ['comments', 'Comments'],
+                      ].map(([val, label]) => (
+                        <button
+                          key={val}
+                          onClick={() => setActivityFilter(val)}
                           className={`text-[10px] font-medium px-2 py-0.5 rounded-md transition-colors ${
-                            activityFilter === val ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'
-                          }`}>
+                            activityFilter === val
+                              ? 'bg-white shadow-sm text-slate-800'
+                              : 'text-slate-500 hover:text-slate-700'
+                          }`}
+                        >
                           {label}
                         </button>
                       ))}
@@ -1002,59 +1773,114 @@ export default function TicketPanel({ ticketId, projectId, projectRole, onClose,
                   <div className="space-y-3 mb-4">
                     {(() => {
                       // Build merged, sorted feed
-                      const commentMap = Object.fromEntries(comments.map(c => [c.id, c]));
-                      const feedItems = activityFilter === 'comments'
-                        ? comments.map(c => ({ _type: 'comment', _ts: c.created_at, ...c }))
-                        : [
-                            ...comments.map(c => ({ _type: 'comment', _ts: c.created_at, ...c })),
-                            ...activityEvents.filter(e => e.action !== 'commented').map(e => ({ _type: 'event', _ts: e.created_at, ...e })),
-                          ].sort((a, b) => new Date(a._ts) - new Date(b._ts));
+                      const commentMap = Object.fromEntries(
+                        comments.map((c) => [c.id, c])
+                      );
+                      const feedItems =
+                        activityFilter === 'comments'
+                          ? comments.map((c) => ({
+                              _type: 'comment',
+                              _ts: c.created_at,
+                              ...c,
+                            }))
+                          : [
+                              ...comments.map((c) => ({
+                                _type: 'comment',
+                                _ts: c.created_at,
+                                ...c,
+                              })),
+                              ...activityEvents
+                                .filter(
+                                  (e) => e.action !== 'commented'
+                                )
+                                .map((e) => ({
+                                  _type: 'event',
+                                  _ts: e.created_at,
+                                  ...e,
+                                })),
+                            ].sort(
+                              (a, b) =>
+                                new Date(a._ts) - new Date(b._ts)
+                            );
 
-                      if (!feedItems.length) return <p className="text-xs text-slate-400 italic">No activity yet</p>;
+                      if (!feedItems.length)
+                        return (
+                          <p className="text-xs text-slate-400 italic">
+                            No activity yet
+                          </p>
+                        );
 
                       const FIELD_LABELS = {
-                        status: 'status', priority: 'priority', assignee_id: 'assignee',
-                        sprint_id: 'sprint', title: 'title', story_points: 'story points',
-                        estimate_hours: 'estimate', due_date: 'due date', type: 'type',
+                        status: 'status',
+                        priority: 'priority',
+                        assignee_id: 'assignee',
+                        sprint_id: 'sprint',
+                        title: 'title',
+                        story_points: 'story points',
+                        estimate_hours: 'estimate',
+                        due_date: 'due date',
+                        type: 'type',
                       };
 
-                      return feedItems.map(item => {
+                      return feedItems.map((item) => {
                         if (item._type === 'comment') {
                           return (
-                            <div key={`c-${item.id}`} className="flex gap-3 group">
+                            <div
+                              key={`c-${item.id}`}
+                              className="flex gap-3 group"
+                            >
                               <Avatar user={item.author} size="sm" />
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-baseline gap-2 mb-1">
-                                  <span className="text-xs font-semibold text-slate-700">{item.author?.name || 'Unknown'}</span>
-                                  <span className="text-[11px] text-slate-400">{new Date(item.created_at).toLocaleString()}</span>
+                                  <span className="text-xs font-semibold text-slate-700">
+                                    {item.author?.name || 'Unknown'}
+                                  </span>
+                                  <span className="text-[11px] text-slate-400">
+                                    {new Date(
+                                      item.created_at
+                                    ).toLocaleString()}
+                                  </span>
                                   {canWrite && (
-                                    <button onClick={() => removeComment.mutate(item.id)}
-                                      className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-400 ml-auto transition-opacity">
+                                    <button
+                                      onClick={() =>
+                                        removeComment.mutate(item.id)
+                                      }
+                                      className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-400 ml-auto transition-opacity"
+                                    >
                                       <Trash2 size={11} />
                                     </button>
                                   )}
                                 </div>
-                                <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">{renderCommentBody(item.body)}</p>
+                                <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">
+                                  {renderCommentBody(item.body)}
+                                </p>
                               </div>
                             </div>
                           );
                         }
                         // Change event
-                        const fieldLabel = FIELD_LABELS[item.field] || item.field;
-                        const actorName = item.actor?.name || 'Someone';
+                        const fieldLabel =
+                          FIELD_LABELS[item.field] || item.field;
+                        const actorName =
+                          item.actor?.name || 'Someone';
                         let eventText;
                         if (item.action === 'created') {
                           eventText = 'created this ticket';
                         } else if (item.field) {
                           eventText = `changed ${fieldLabel}`;
                           if (item.old_value || item.new_value) {
-                            eventText += ` from "${item.old_value ?? '—'}" → "${item.new_value ?? '—'}"`;
+                            eventText += ` from "${
+                              item.old_value ?? '—'
+                            }" → "${item.new_value ?? '—'}"`;
                           }
                         } else {
                           eventText = item.action;
                         }
                         return (
-                          <div key={`e-${item.id}`} className="flex items-start gap-2 text-[11px] text-slate-500">
+                          <div
+                            key={`e-${item.id}`}
+                            className="flex items-start gap-2 text-[11px] text-slate-500"
+                          >
                             <div className="w-5 h-5 flex-shrink-0 flex items-center justify-center">
                               {item.actor ? (
                                 <Avatar user={item.actor} size="sm" />
@@ -1063,9 +1889,15 @@ export default function TicketPanel({ ticketId, projectId, projectRole, onClose,
                               )}
                             </div>
                             <div className="pt-0.5">
-                              <span className="font-medium text-slate-600">{actorName}</span>
-                              {' '}{eventText}
-                              <span className="ml-1.5 text-slate-400">{new Date(item.created_at).toLocaleString()}</span>
+                              <span className="font-medium text-slate-600">
+                                {actorName}
+                              </span>{' '}
+                              {eventText}
+                              <span className="ml-1.5 text-slate-400">
+                                {new Date(
+                                  item.created_at
+                                ).toLocaleString()}
+                              </span>
                             </div>
                           </div>
                         );
@@ -1080,15 +1912,27 @@ export default function TicketPanel({ ticketId, projectId, projectRole, onClose,
                         <MentionTextarea
                           value={commentBody}
                           onChange={setCommentBody}
-                          onSubmit={() => commentBody.trim() && addComment.mutate()}
+                          onSubmit={() =>
+                            commentBody.trim() && addComment.mutate()
+                          }
                           members={projectMembers}
                           placeholder="Add a comment... type @ to mention someone"
                         />
                         <div className="flex justify-between items-center mt-1.5">
-                          <span className="text-[11px] text-slate-400">⌘+Enter to submit · @ to mention</span>
-                          <button onClick={() => commentBody.trim() && addComment.mutate()}
-                            disabled={!commentBody.trim() || addComment.isPending}
-                            className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded font-medium hover:bg-indigo-500 disabled:opacity-40">
+                          <span className="text-[11px] text-slate-400">
+                            ⌘+Enter to submit · @ to mention
+                          </span>
+                          <button
+                            onClick={() =>
+                              commentBody.trim() &&
+                              addComment.mutate()
+                            }
+                            disabled={
+                              !commentBody.trim() ||
+                              addComment.isPending
+                            }
+                            className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded font-medium hover:bg-indigo-500 disabled:opacity-40"
+                          >
                             Comment
                           </button>
                         </div>
@@ -1102,45 +1946,89 @@ export default function TicketPanel({ ticketId, projectId, projectRole, onClose,
               <div className="w-52 flex-shrink-0 border-l border-slate-100 overflow-y-auto scrollbar-thin px-4 py-4 space-y-4">
                 {updateError && (
                   <div className="flex items-start gap-1.5 text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-2.5 py-2 -mx-1">
-                    <AlertCircle size={12} className="flex-shrink-0 mt-0.5" />
+                    <AlertCircle
+                      size={12}
+                      className="flex-shrink-0 mt-0.5"
+                    />
                     <span>{updateError}</span>
                   </div>
                 )}
                 <Field label="Status">
-                  {canWrite
-                    ? <StatusBadge status={ticket.status} onChange={v => update.mutate({ status: v })} statuses={statuses} />
-                    : <StatusBadge status={ticket.status} statuses={statuses} />
-                  }
+                  {canWrite ? (
+                    <StatusBadge
+                      status={ticket.status}
+                      onChange={(v) => update.mutate({ status: v })}
+                      statuses={statuses}
+                    />
+                  ) : (
+                    <StatusBadge
+                      status={ticket.status}
+                      statuses={statuses}
+                    />
+                  )}
                 </Field>
 
                 <Field label="Type">
-                  <InlineSelect value={ticket.type} options={TYPE_OPTIONS}
-                    onChange={v => update.mutate({ type: v })} disabled={!canWrite} />
+                  <InlineSelect
+                    value={ticket.type}
+                    options={TYPE_OPTIONS}
+                    onChange={(v) => update.mutate({ type: v })}
+                    disabled={!canWrite}
+                  />
                 </Field>
 
                 <Field label="Priority">
-                  <InlineSelect value={ticket.priority} options={PRIORITY_OPTIONS}
-                    onChange={v => update.mutate({ priority: v })} disabled={!canWrite} />
+                  <InlineSelect
+                    value={ticket.priority}
+                    options={PRIORITY_OPTIONS}
+                    onChange={(v) => update.mutate({ priority: v })}
+                    disabled={!canWrite}
+                  />
                 </Field>
 
                 <Field label="Assignee">
                   {canWrite ? (
-                    <select value={ticket.assignee_id || ''} onChange={e => update.mutate({ assignee_id: e.target.value || null })}
-                      className="text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-300 cursor-pointer w-full">
+                    <select
+                      value={ticket.assignee_id || ''}
+                      onChange={(e) =>
+                        update.mutate({
+                          assignee_id: e.target.value || null,
+                        })
+                      }
+                      className="text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-300 cursor-pointer w-full"
+                    >
                       <option value="">Unassigned</option>
-                      {assigneeOptions.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                      {assigneeOptions.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.name}
+                        </option>
+                      ))}
                     </select>
                   ) : (
-                    <ReadOnly value={assigneeName} fallback="Unassigned" />
+                    <ReadOnly
+                      value={assigneeName}
+                      fallback="Unassigned"
+                    />
                   )}
                 </Field>
 
                 <Field label="Reporter">
                   {canWrite ? (
-                    <select value={ticket.reporter_id || ''} onChange={e => update.mutate({ reporter_id: e.target.value || null })}
-                      className="text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-300 cursor-pointer w-full">
+                    <select
+                      value={ticket.reporter_id || ''}
+                      onChange={(e) =>
+                        update.mutate({
+                          reporter_id: e.target.value || null,
+                        })
+                      }
+                      className="text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-300 cursor-pointer w-full"
+                    >
                       <option value="">None</option>
-                      {projectMembers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                      {projectMembers.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.name}
+                        </option>
+                      ))}
                     </select>
                   ) : (
                     <ReadOnly value={reporterName} fallback="None" />
@@ -1149,9 +2037,21 @@ export default function TicketPanel({ ticketId, projectId, projectRole, onClose,
 
                 <Field label="Story Points">
                   {canWrite ? (
-                    <input type="number" min="0" step="1" placeholder="—" value={ticket.story_points ?? ''}
-                      onChange={e => update.mutate({ story_points: e.target.value ? parseInt(e.target.value) : null })}
-                      className="text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-300 w-full" />
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      placeholder="—"
+                      value={ticket.story_points ?? ''}
+                      onChange={(e) =>
+                        update.mutate({
+                          story_points: e.target.value
+                            ? parseInt(e.target.value)
+                            : null,
+                        })
+                      }
+                      className="text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-300 w-full"
+                    />
                   ) : (
                     <ReadOnly value={ticket.story_points} />
                   )}
@@ -1159,10 +2059,21 @@ export default function TicketPanel({ ticketId, projectId, projectRole, onClose,
 
                 <Field label="Sprint">
                   {canWrite ? (
-                    <select value={ticket.sprint_id || ''} onChange={e => update.mutate({ sprint_id: e.target.value || null })}
-                      className="text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-300 cursor-pointer w-full">
+                    <select
+                      value={ticket.sprint_id || ''}
+                      onChange={(e) =>
+                        update.mutate({
+                          sprint_id: e.target.value || null,
+                        })
+                      }
+                      className="text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-300 cursor-pointer w-full"
+                    >
                       <option value="">Backlog</option>
-                      {activeSprints.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                      {activeSprints.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}
+                        </option>
+                      ))}
                     </select>
                   ) : (
                     <ReadOnly value={sprintName} fallback="Backlog" />
@@ -1171,47 +2082,106 @@ export default function TicketPanel({ ticketId, projectId, projectRole, onClose,
 
                 {canWrite && (
                   <Field label="Parent Ticket">
-                    <select value={ticket.parent_id || ''} onChange={e => update.mutate({ parent_id: e.target.value || null })}
-                      className="text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-300 cursor-pointer w-full">
+                    <select
+                      value={ticket.parent_id || ''}
+                      onChange={(e) =>
+                        update.mutate({
+                          parent_id: e.target.value || null,
+                        })
+                      }
+                      className="text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-300 cursor-pointer w-full"
+                    >
                       <option value="">None</option>
-                      {siblings.filter(t => t.id !== ticketId).map(t => (
-                        <option key={t.id} value={t.id}>{t.ticket_key}: {t.title.slice(0, 30)}</option>
-                      ))}
+                      {siblings
+                        .filter((t) => t.id !== ticketId)
+                        .map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.ticket_key}: {t.title.slice(0, 30)}
+                          </option>
+                        ))}
                     </select>
                   </Field>
                 )}
                 {!canWrite && ticket.parent && (
                   <Field label="Parent Ticket">
-                    <ReadOnly value={`${parentKey}: ${ticket.parent?.title?.slice(0, 30)}`} />
+                    <ReadOnly
+                      value={`${parentKey}: ${ticket.parent?.title?.slice(
+                        0,
+                        30
+                      )}`}
+                    />
                   </Field>
                 )}
 
                 <Field label="Due Date">
                   {canWrite ? (
                     <div className="flex items-center gap-1">
-                      <input type="date" value={ticket.due_date ? ticket.due_date.split('T')[0] : ''}
-                        onChange={e => update.mutate({ due_date: e.target.value || null })}
-                        className="text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-300 flex-1" />
+                      <input
+                        type="date"
+                        value={
+                          ticket.due_date
+                            ? ticket.due_date.split('T')[0]
+                            : ''
+                        }
+                        onChange={(e) =>
+                          update.mutate({
+                            due_date: e.target.value || null,
+                          })
+                        }
+                        className="text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-300 flex-1"
+                      />
                       {ticket.due_date && (
-                        <button type="button" onClick={() => update.mutate({ due_date: null })}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            update.mutate({ due_date: null })
+                          }
                           title="Clear due date"
-                          className="text-slate-300 hover:text-slate-500 transition-colors text-xs px-1">
+                          className="text-slate-300 hover:text-slate-500 transition-colors text-xs px-1"
+                        >
                           ×
                         </button>
                       )}
                     </div>
                   ) : (
-                    <ReadOnly value={ticket.due_date ? new Date(ticket.due_date).toLocaleDateString() : null} fallback="None" />
+                    <ReadOnly
+                      value={
+                        ticket.due_date
+                          ? new Date(
+                              ticket.due_date
+                            ).toLocaleDateString()
+                          : null
+                      }
+                      fallback="None"
+                    />
                   )}
                 </Field>
 
                 <Field label="Estimate (hours)">
                   {canWrite ? (
-                    <input type="number" min="0" step="0.5" placeholder="—" value={ticket.estimate_hours ?? ''}
-                      onChange={e => update.mutate({ estimate_hours: e.target.value ? parseFloat(e.target.value) : null })}
-                      className="text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-300 w-full" />
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.5"
+                      placeholder="—"
+                      value={ticket.estimate_hours ?? ''}
+                      onChange={(e) =>
+                        update.mutate({
+                          estimate_hours: e.target.value
+                            ? parseFloat(e.target.value)
+                            : null,
+                        })
+                      }
+                      className="text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded px-2 py-1 outline-none focus:ring-1 focus:ring-indigo-300 w-full"
+                    />
                   ) : (
-                    <ReadOnly value={ticket.estimate_hours ? `${ticket.estimate_hours}h` : null} />
+                    <ReadOnly
+                      value={
+                        ticket.estimate_hours
+                          ? `${ticket.estimate_hours}h`
+                          : null
+                      }
+                    />
                   )}
                 </Field>
 
@@ -1219,7 +2189,9 @@ export default function TicketPanel({ ticketId, projectId, projectRole, onClose,
                   <LabelPicker
                     projectId={projectId}
                     ticketLabels={ticket.labels || []}
-                    onUpdate={(labelIds) => update.mutate({ label_ids: labelIds })}
+                    onUpdate={(labelIds) =>
+                      update.mutate({ label_ids: labelIds })
+                    }
                     canWrite={canWrite}
                     canManageProject={canManageProject}
                   />
@@ -1233,10 +2205,14 @@ export default function TicketPanel({ ticketId, projectId, projectRole, onClose,
                 />
 
                 <Field label="Created">
-                  <div className="text-xs text-slate-500">{new Date(ticket.created_at).toLocaleString()}</div>
+                  <div className="text-xs text-slate-500">
+                    {new Date(ticket.created_at).toLocaleString()}
+                  </div>
                 </Field>
                 <Field label="Updated">
-                  <div className="text-xs text-slate-500">{new Date(ticket.updated_at).toLocaleString()}</div>
+                  <div className="text-xs text-slate-500">
+                    {new Date(ticket.updated_at).toLocaleString()}
+                  </div>
                 </Field>
               </div>
             </div>

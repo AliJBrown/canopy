@@ -47,3 +47,16 @@ export const unlinkTicketFromGoal = (projectId, goalId, ticketId) =>
 
 export const getTicketCandidates = (projectId, goalId, search = '') =>
   client.get(`/api/projects/${projectId}/goals/${goalId}/ticket-candidates`, { params: { search } });
+
+// Goal links from the ticket's own detail panel
+export const getTicketGoals = (ticketId) =>
+  client.get(`/api/tickets/${ticketId}/goals`);
+
+export const getTicketGoalCandidates = (ticketId, search = '') =>
+  client.get(`/api/tickets/${ticketId}/goals/candidates`, { params: { search } });
+
+export const linkGoalToTicket = (ticketId, goalId) =>
+  client.post(`/api/tickets/${ticketId}/goals`, { goal_id: goalId });
+
+export const unlinkGoalFromTicket = (ticketId, goalId) =>
+  client.delete(`/api/tickets/${ticketId}/goals/${goalId}`);
