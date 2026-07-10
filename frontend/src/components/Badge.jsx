@@ -23,6 +23,7 @@ const STATUS_CONFIG = {
   todo:        { label: 'To Do',       class: 'bg-blue-100 text-blue-700' },
   in_progress: { label: 'In Progress', class: 'bg-amber-100 text-amber-700' },
   in_review:   { label: 'In Review',   class: 'bg-purple-100 text-purple-700' },
+  blocked:     { label: 'Blocked',     class: 'bg-red-100 text-red-700' },
   done:        { label: 'Done',        class: 'bg-green-100 text-green-700' },
 };
 

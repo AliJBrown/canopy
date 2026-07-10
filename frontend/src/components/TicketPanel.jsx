@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { X, Trash2, Plus, ExternalLink, ChevronRight, Pencil, Paperclip, Download, Image, FileText, AlertCircle, Link } from 'lucide-react';
+import { X, Trash2, Plus, ExternalLink, ChevronRight, Pencil, Paperclip, Download, Image, FileText, AlertCircle, Link, Maximize2, Minimize2 } from 'lucide-react';
 import { getTicket, updateTicket, deleteTicket, createTicket, getTickets } from '../api/tickets';
 import { getDependencies, addDependency, removeDependency } from '../api/dependencies';
 import { getComments, createComment, deleteComment } from '../api/comments';
@@ -674,6 +674,7 @@ export default function TicketPanel({ ticketId, projectId, projectRole, onClose,
 
   const [commentBody, setCommentBody] = useState('');
   const [updateError, setUpdateError] = useState('');
+  const [expanded, setExpanded] = useState(false);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
   const [isEditingDesc, setIsEditingDesc] = useState(false);
@@ -785,8 +786,8 @@ export default function TicketPanel({ ticketId, projectId, projectRole, onClose,
 
   return (
     <>
-      <div className="fixed inset-0 bg-black/20 z-30" onClick={onClose} />
-      <aside className="fixed right-0 top-0 h-full w-[640px] bg-white shadow-2xl z-40 flex flex-col overflow-hidden">
+      {!expanded && <div className="fixed inset-0 bg-black/20 z-30" onClick={onClose} />}
+      <aside className={`fixed top-0 bottom-0 bg-white shadow-2xl z-40 flex flex-col overflow-hidden transition-all duration-200 ${expanded ? 'left-56 right-0' : 'right-0 w-[640px]'}`}>
         {isLoading ? (
           <div className="flex items-center justify-center h-full text-slate-400">Loading...</div>
         ) : !ticket ? (
@@ -823,6 +824,11 @@ export default function TicketPanel({ ticketId, projectId, projectRole, onClose,
                   <span className="text-[10px] text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full font-medium mr-1">View only</span>
                 )}
                 <CopyLinkButton url={`${window.location.origin}/p/${ticket.project_key}?ticket=${ticket.id}`} />
+                <button onClick={() => setExpanded(e => !e)}
+                  className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded transition-colors"
+                  title={expanded ? 'Collapse' : 'Expand to full screen'}>
+                  {expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+                </button>
                 {canDelete && (
                   <button onClick={() => { if (confirm('Delete this ticket?')) remove.mutate(); }}
                     className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors">

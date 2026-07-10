@@ -132,7 +132,7 @@ function Column({ status, label, color, wip_limit, tickets, onTicketClick, onAdd
   );
 }
 
-export default function Board({ tickets, onTicketClick, onStatusChange, onAddClick, statuses }) {
+export default function Board({ tickets, onTicketClick, onStatusChange, onAddClick, statuses, selectedStatuses }) {
   const [activeTicket, setActiveTicket] = useState(null);
   const [wipToast, setWipToast] = useState(null);
 
@@ -158,9 +158,13 @@ export default function Board({ tickets, onTicketClick, onStatusChange, onAddCli
     }
   };
 
-  const columns = statuses && statuses.length > 0
+  const allColumns = statuses && statuses.length > 0
     ? statuses.map(s => ({ status: s.slug, label: s.name, color: s.color, wip_limit: s.wip_limit ?? null, tickets: tickets.filter(t => t.status === s.slug) }))
     : Object.entries(STATUS_CONFIG).map(([status, cfg]) => ({ status, label: cfg.label, color: null, wip_limit: null, tickets: tickets.filter(t => t.status === status) }));
+
+  const columns = selectedStatuses?.length
+    ? allColumns.filter(c => selectedStatuses.includes(c.status))
+    : allColumns;
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>

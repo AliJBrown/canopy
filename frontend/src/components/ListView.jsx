@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { ChevronRight, ChevronDown, Plus } from 'lucide-react';
 import { TypeBadge, PriorityBadge, StatusBadge, Avatar } from './Badge';
 
-function TicketRow({ ticket, depth = 0, onTicketClick, onStatusChange, onAddChild, allTickets, collapsed, onToggle }) {
+function TicketRow({ ticket, depth = 0, onTicketClick, onStatusChange, onAddChild, allTickets, collapsed, onToggle, statuses }) {
   const children = allTickets.filter(t => t.parent_id === ticket.id);
   const isOpen = !collapsed.has(ticket.id);
 
@@ -27,7 +27,8 @@ function TicketRow({ ticket, depth = 0, onTicketClick, onStatusChange, onAddChil
         </td>
         <td className="py-2 px-4 text-center">
           <StatusBadge status={ticket.status}
-            onChange={v => onStatusChange(ticket.id, v)} />
+            onChange={v => onStatusChange(ticket.id, v)}
+            statuses={statuses} />
         </td>
         <td className="py-2 px-4">
           <PriorityBadge priority={ticket.priority} showLabel />
@@ -70,13 +71,14 @@ function TicketRow({ ticket, depth = 0, onTicketClick, onStatusChange, onAddChil
           allTickets={allTickets}
           collapsed={collapsed}
           onToggle={onToggle}
+          statuses={statuses}
         />
       ))}
     </>
   );
 }
 
-export default function ListView({ tickets, onTicketClick, onStatusChange, onAddChild }) {
+export default function ListView({ tickets, onTicketClick, onStatusChange, onAddChild, statuses }) {
   const roots = useMemo(() => tickets.filter(t => !t.parent_id), [tickets]);
 
   const parentIds = useMemo(
@@ -145,6 +147,7 @@ export default function ListView({ tickets, onTicketClick, onStatusChange, onAdd
               allTickets={tickets}
               collapsed={collapsed}
               onToggle={toggle}
+              statuses={statuses}
             />
           ))}
         </tbody>

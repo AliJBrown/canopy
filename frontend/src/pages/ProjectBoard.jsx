@@ -295,6 +295,7 @@ export default function ProjectBoard() {
             onStatusChange={(id, status, onWipWarning) => changeStatus.mutate({ id, status, onWipWarning })}
             onAddClick={canWrite ? (status) => { setCreateDefaults({ status }); setShowCreate(true); } : () => {}}
             statuses={projectStatuses}
+            selectedStatuses={filters.status}
           />
         ) : (
           <div className="flex-1 overflow-auto flex flex-col">
@@ -303,6 +304,7 @@ export default function ProjectBoard() {
               onTicketClick={handleTicketClick}
               onStatusChange={(id, status) => changeStatus.mutate({ id, status })}
               onAddChild={canWrite ? (t) => { setCreateDefaults({ parent_id: t.id }); setShowCreate(true); } : () => {}}
+              statuses={projectStatuses}
             />
             {listAccum.length < listTotal && (
               <div className="flex justify-center py-4 border-t border-slate-100 bg-white">

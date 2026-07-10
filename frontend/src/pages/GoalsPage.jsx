@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useParams, useLocation } from 'react-router-dom';
+import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Target, Plus, ChevronRight, ChevronDown, X, Trash2, Pencil, Link2, Link,
   Search, CheckCircle2, AlertTriangle, AlertCircle, Clock, CircleDashed,
-  Ban, EyeOff, Eye, Layers, LayoutGrid, List, Calendar, Lock, Unlock,
+  Ban, EyeOff, Eye, Layers, LayoutGrid, List, Calendar, Lock, Unlock, Maximize2,
 } from 'lucide-react';
 import { getProjects } from '../api/projects';
 import { getProjectMembers } from '../api/admin';
+import { getProjectStatuses } from '../api/projectStatuses';
 import {
   getGoals, createGoal, updateGoal, deleteGoal, lockGoal,
   getGoalEpics, linkEpicToGoal, unlinkEpicFromGoal, getEpicCandidates,
@@ -440,6 +441,7 @@ function CopyLinkButton({ url }) {
 // Goal detail panel
 function GoalPanel({ goal, projectId, projectKey, members, canWrite, canDelete, canLockGoals, onClose, onDeleted, onAddChild, onTicketClick }) {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
   const [showLinker, setShowLinker] = useState(null); // 'epic' | 'ticket' | null
   const [expandedEpics, setExpandedEpics] = useState({});
@@ -523,6 +525,11 @@ function GoalPanel({ goal, projectId, projectKey, members, canWrite, canDelete, 
               <Trash2 size={14} />
             </button>
           )}
+          <button onClick={() => navigate(`/goals/${goal.id}`)}
+            className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded transition-colors"
+            title="Open full page">
+            <Maximize2 size={14} />
+          </button>
           <button onClick={onClose}
             className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded transition-colors">
             <X size={14} />
@@ -1041,6 +1048,12 @@ export default function GoalsPage() {
     enabled: !!project?.id,
   });
 
+  const { data: projectStatuses = [] } = useQuery({
+    queryKey: ['project-statuses', project?.id],
+    queryFn: () => getProjectStatuses(project.id),
+    enabled: !!project?.id,
+  });
+
   const { canWrite, canDelete, canLockGoals } = useProjectPermissions(project);
 
   const [selectedGoal, setSelectedGoal] = useState(null);
@@ -1233,6 +1246,7 @@ export default function GoalsPage() {
           ticketId={openTicketId}
           projectId={project.id}
           projectRole={project.my_role}
+          statuses={projectStatuses}
           onClose={() => setOpenTicketId(null)}
         />
       )}
