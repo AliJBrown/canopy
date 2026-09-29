@@ -110,17 +110,73 @@ router.post('/', async (req, res, next) => {
 
 router.patch('/:id', async (req, res, next) => {
   try {
-    const { rows: [comment] } = await query('SELECT * FROM comments WHERE id = $1', [req.params.id]);
+    const { rows: [comment] } = await query(
+      'SELECT c.*, t.project_id FROM comments c JOIN tickets t ON t.id = c.ticket_id WHERE c.id = $1',
+      [req.params.id]
+    );
     if (!comment) return res.status(404).json({ error: 'Not found' });
     if (comment.author_id !== req.user.id && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'Can only edit your own comments' });
     }
     const { body } = req.body;
-    const { rows } = await query(
-      'UPDATE comments SET body = $1 WHERE id = $2 RETURNING *',
+    if (!body || !body.trim()) return res.status(400).json({ error: 'body required' });
+
+    await query(
+      'UPDATE comments SET body = $1, updated_at = NOW() WHERE id = $2',
       [body, req.params.id]
     );
-    res.json(rows[0]);
+
+    // Sync mentions: drop removed ones, add new ones
+    const mentionIds = extractMentions(body);
+    const { rows: existing } = await query(
+      'SELECT user_id FROM comment_mentions WHERE comment_id = $1',
+      [req.params.id]
+    );
+    const existingIds = new Set(existing.map((r) => r.user_id));
+    await query(
+      'DELETE FROM comment_mentions WHERE comment_id = $1 AND NOT (user_id = ANY($2::uuid[]))',
+      [req.params.id, mentionIds]
+    );
+    const newMentionIds = mentionIds.filter((id) => !existingIds.has(id));
+    for (const userId of newMentionIds) {
+      await query(
+        'INSERT INTO comment_mentions (comment_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+        [req.params.id, userId]
+      );
+    }
+
+    const full = await query(`
+      SELECT c.*,
+        json_build_object('id', u.id, 'name', u.name, 'color', u.color, 'avatar_url', u.avatar_url) AS author,
+        COALESCE(
+          (SELECT json_agg(json_build_object('id', mu.id, 'name', mu.name))
+           FROM comment_mentions cm JOIN users mu ON mu.id = cm.user_id
+           WHERE cm.comment_id = c.id), '[]'
+        ) AS mentions
+      FROM comments c LEFT JOIN users u ON u.id = c.author_id WHERE c.id = $1
+    `, [req.params.id]);
+    res.json(full.rows[0]);
+
+    // Notify only newly mentioned users (non-blocking)
+    setImmediate(async () => {
+      if (!newMentionIds.length) return;
+      const { rows: [ticketMeta] } = await query(
+        'SELECT t.title, t.number, p.key AS project_key FROM tickets t JOIN projects p ON p.id = t.project_id WHERE t.id = $1',
+        [comment.ticket_id]
+      ).catch(() => ({ rows: [] }));
+      for (const userId of newMentionIds) {
+        if (userId === req.user.id) continue;
+        await query(
+          `INSERT INTO notifications (user_id, actor_id, type, ticket_id, comment_id, data)
+           VALUES ($1, $2, 'mentioned', $3, $4, $5)`,
+          [userId, req.user.id, comment.ticket_id, req.params.id, JSON.stringify({
+            ticket_title: ticketMeta?.title,
+            project_key: ticketMeta?.project_key,
+            ticket_number: ticketMeta?.number,
+          })]
+        ).catch(() => {});
+      }
+    });
   } catch (err) { next(err); }
 });
 

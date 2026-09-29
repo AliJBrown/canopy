@@ -137,16 +137,18 @@ router.get('/', async (req, res, next) => {
       if (vals.length === 1) { params.push(vals[0]); conditions.push(`t.priority = $${params.length}`); }
       else { params.push(vals); conditions.push(`t.priority = ANY($${params.length})`); }
     }
+    // Selected assignees and "Unassigned" are alternatives within one filter, so OR them
+    const assigneeOr = [];
     if (assigneeId) {
       const vals = assigneeId.split(',').filter(Boolean);
-      if (vals.length === 1) { params.push(vals[0]); conditions.push(`t.assignee_id = $${params.length}`); }
-      else { params.push(vals); conditions.push(`t.assignee_id = ANY($${params.length}::uuid[])`); }
+      if (vals.length) { params.push(vals); assigneeOr.push(`t.assignee_id = ANY($${params.length}::uuid[])`); }
     }
+    if (hasNoAssignee === 'true') assigneeOr.push('t.assignee_id IS NULL');
+    if (assigneeOr.length) conditions.push(`(${assigneeOr.join(' OR ')})`);
     if (notStatus) {
       const vals = notStatus.split(',').filter(Boolean);
       params.push(vals); conditions.push(`NOT (t.status = ANY($${params.length}))`);
     }
-    if (hasNoAssignee === 'true') conditions.push('t.assignee_id IS NULL');
     if (req.query.hasNoPoints === 'true') conditions.push('t.story_points IS NULL');
     if (req.query.hasNoHours === 'true') conditions.push('t.estimate_hours IS NULL');
 

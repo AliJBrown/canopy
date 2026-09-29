@@ -39,10 +39,11 @@ router.get('/', async (req, res, next) => {
       ORDER BY a.created_at ASC
     `, [ticketId]);
 
-    const results = await Promise.all(rows.map(async (row) => {
-      const url = await storage.presignedUrl(row.filename);
-      return { ...row, url };
-    }));
+    const results = await Promise.all(rows.map(async (row) => ({
+      ...row,
+      url: await storage.presignedUrl(row.filename),
+      download_url: await storage.presignedUrl(row.filename, { downloadName: row.original_name }),
+    })));
 
     res.json(results);
   } catch (err) { next(err); }
@@ -72,6 +73,7 @@ router.post('/', upload.single('file'), async (req, res, next) => {
     `, [ticketId, req.user.id, key, req.file.originalname, req.file.mimetype, req.file.size]);
 
     const url = await storage.presignedUrl(key);
+    const download_url = await storage.presignedUrl(key, { downloadName: req.file.originalname });
     const full = await query(`
       SELECT a.*,
         CASE WHEN u.id IS NOT NULL
@@ -82,7 +84,7 @@ router.post('/', upload.single('file'), async (req, res, next) => {
       WHERE a.id = $1
     `, [rows[0].id]);
 
-    res.status(201).json({ ...full.rows[0], url });
+    res.status(201).json({ ...full.rows[0], url, download_url });
   } catch (err) { next(err); }
 });
 

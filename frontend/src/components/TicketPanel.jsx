@@ -48,6 +48,7 @@ import {
 import {
   getComments,
   createComment,
+  updateComment,
   deleteComment,
 } from '../api/comments';
 import { getActivity } from '../api/activity';
@@ -686,6 +687,53 @@ function MentionTextarea({
   );
 }
 
+// Full-size image preview; Escape closes it without closing the ticket panel
+function ImagePreview({ attachment, onClose }) {
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      e.stopImmediatePropagation();
+      onClose();
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] bg-black/80 flex flex-col items-center justify-center p-6"
+      onClick={onClose}
+    >
+      <div
+        className="flex items-center gap-3 mb-3 text-white text-sm max-w-full"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <span className="truncate">{attachment.original_name}</span>
+        <a
+          href={attachment.download_url || attachment.url}
+          className="p-1.5 rounded hover:bg-white/10 flex-shrink-0"
+          title="Download"
+        >
+          <Download size={16} />
+        </a>
+        <button
+          onClick={onClose}
+          className="p-1.5 rounded hover:bg-white/10 flex-shrink-0"
+          title="Close"
+        >
+          <X size={16} />
+        </button>
+      </div>
+      <img
+        src={attachment.url}
+        alt={attachment.original_name}
+        className="max-w-full max-h-[85vh] object-contain rounded shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      />
+    </div>
+  );
+}
+
 // Drag-and-drop file attachments section
 function AttachmentsSection({ ticketId, canWrite }) {
   const qc = useQueryClient();
@@ -693,6 +741,8 @@ function AttachmentsSection({ ticketId, canWrite }) {
   const [isDragging, setIsDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
+  const [previewAtt, setPreviewAtt] = useState(null);
+  const closePreview = useCallback(() => setPreviewAtt(null), []);
 
   const { data: attachments = [] } = useQuery({
     queryKey: ['attachments', ticketId],
@@ -802,19 +852,25 @@ function AttachmentsSection({ ticketId, canWrite }) {
         </div>
       )}
 
-      {/* Drop overlay when files exist */}
-      {canWrite && attachments.length > 0 && (
+      {!canWrite && attachments.length === 0 && (
+        <p className="text-xs text-slate-400">No attachments</p>
+      )}
+
+      {/* Attachment list; also a drop target for writers */}
+      {attachments.length > 0 && (
         <div
-          onDragOver={(e) => {
-            e.preventDefault();
-            setIsDragging(true);
-          }}
-          onDragLeave={() => setIsDragging(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setIsDragging(false);
-            doUpload(e.dataTransfer.files);
-          }}
+          {...(canWrite && {
+            onDragOver: (e) => {
+              e.preventDefault();
+              setIsDragging(true);
+            },
+            onDragLeave: () => setIsDragging(false),
+            onDrop: (e) => {
+              e.preventDefault();
+              setIsDragging(false);
+              doUpload(e.dataTransfer.files);
+            },
+          })}
           className={`transition-all ${
             isDragging
               ? 'ring-2 ring-indigo-400 ring-offset-2 rounded-lg'
@@ -828,20 +884,40 @@ function AttachmentsSection({ ticketId, canWrite }) {
                 className="flex items-center gap-2.5 p-2.5 rounded-lg border border-slate-100 hover:border-slate-200 group transition-colors"
               >
                 {isImage(att.content_type) ? (
-                  <img
-                    src={att.url}
-                    alt={att.original_name}
-                    className="w-10 h-10 object-cover rounded border border-slate-200 flex-shrink-0"
-                  />
+                  <button
+                    onClick={() => setPreviewAtt(att)}
+                    className="flex-shrink-0 rounded hover:ring-2 hover:ring-indigo-300 transition"
+                    title="Preview"
+                  >
+                    <img
+                      src={att.url}
+                      alt={att.original_name}
+                      className="w-10 h-10 object-cover rounded border border-slate-200"
+                    />
+                  </button>
                 ) : (
                   <div className="w-10 h-10 bg-slate-100 rounded border border-slate-200 flex items-center justify-center flex-shrink-0">
                     <FileText size={16} className="text-slate-400" />
                   </div>
                 )}
                 <div className="flex-1 min-w-0">
-                  <div className="text-xs font-medium text-slate-700 truncate">
-                    {att.original_name}
-                  </div>
+                  {isImage(att.content_type) ? (
+                    <button
+                      onClick={() => setPreviewAtt(att)}
+                      className="block w-full text-left text-xs font-medium text-slate-700 truncate hover:text-indigo-600"
+                    >
+                      {att.original_name}
+                    </button>
+                  ) : (
+                    <a
+                      href={att.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="block text-xs font-medium text-slate-700 truncate hover:text-indigo-600"
+                    >
+                      {att.original_name}
+                    </a>
+                  )}
                   <div className="text-[10px] text-slate-400">
                     {att.file_size
                       ? `${(att.file_size / 1024).toFixed(0)} KB`
@@ -850,10 +926,8 @@ function AttachmentsSection({ ticketId, canWrite }) {
                   </div>
                 </div>
                 <a
-                  href={att.url}
-                  download={att.original_name}
-                  target="_blank"
-                  rel="noreferrer"
+                  href={att.download_url || att.url}
+                  title="Download"
                   className="p-1.5 text-slate-300 hover:text-indigo-500 rounded transition-colors flex-shrink-0"
                 >
                   <Download size={13} />
@@ -875,6 +949,10 @@ function AttachmentsSection({ ticketId, canWrite }) {
             </div>
           )}
         </div>
+      )}
+
+      {previewAtt && (
+        <ImagePreview attachment={previewAtt} onClose={closePreview} />
       )}
     </div>
   );
@@ -1216,6 +1294,8 @@ export default function TicketPanel({
   } = useProjectPermissions({ id: projectId, my_role: projectRole });
 
   const [commentBody, setCommentBody] = useState('');
+  const [editingCommentId, setEditingCommentId] = useState(null);
+  const [editCommentBody, setEditCommentBody] = useState('');
   const [updateError, setUpdateError] = useState('');
   const [expanded, setExpanded] = useState(false);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -1336,6 +1416,15 @@ export default function TicketPanel({
       qc.invalidateQueries(['comments', ticketId]);
       qc.invalidateQueries(['activity', ticketId]);
       setCommentBody('');
+    },
+  });
+
+  const editComment = useMutation({
+    mutationFn: ({ id, body }) => updateComment(id, { body }),
+    onSuccess: () => {
+      qc.invalidateQueries(['comments', ticketId]);
+      setEditingCommentId(null);
+      setEditCommentBody('');
     },
   });
 
@@ -1840,20 +1929,83 @@ export default function TicketPanel({
                                       item.created_at
                                     ).toLocaleString()}
                                   </span>
-                                  {canWrite && (
-                                    <button
-                                      onClick={() =>
-                                        removeComment.mutate(item.id)
-                                      }
-                                      className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-400 ml-auto transition-opacity"
-                                    >
-                                      <Trash2 size={11} />
-                                    </button>
-                                  )}
+                                  {item.updated_at &&
+                                    new Date(item.updated_at) - new Date(item.created_at) > 1000 && (
+                                      <span
+                                        className="text-[11px] text-slate-400"
+                                        title={new Date(item.updated_at).toLocaleString()}
+                                      >
+                                        (edited)
+                                      </span>
+                                    )}
+                                  <div className="ml-auto flex items-center gap-2">
+                                    {editingCommentId !== item.id &&
+                                      (item.author?.id === user?.id || user?.role === 'admin') && (
+                                        <button
+                                          onClick={() => {
+                                            setEditingCommentId(item.id);
+                                            setEditCommentBody(item.body);
+                                          }}
+                                          className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-indigo-500 transition-opacity"
+                                          title="Edit comment"
+                                        >
+                                          <Pencil size={11} />
+                                        </button>
+                                      )}
+                                    {canWrite && (
+                                      <button
+                                        onClick={() =>
+                                          removeComment.mutate(item.id)
+                                        }
+                                        className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-400 transition-opacity"
+                                        title="Delete comment"
+                                      >
+                                        <Trash2 size={11} />
+                                      </button>
+                                    )}
+                                  </div>
                                 </div>
-                                <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">
-                                  {renderCommentBody(item.body)}
-                                </p>
+                                {editingCommentId === item.id ? (
+                                  <div>
+                                    <MentionTextarea
+                                      value={editCommentBody}
+                                      onChange={setEditCommentBody}
+                                      onSubmit={() =>
+                                        editCommentBody.trim() &&
+                                        editComment.mutate({ id: item.id, body: editCommentBody })
+                                      }
+                                      members={projectMembers}
+                                      placeholder="Edit comment..."
+                                    />
+                                    <div className="flex justify-end items-center gap-2 mt-1.5">
+                                      <button
+                                        onClick={() => {
+                                          setEditingCommentId(null);
+                                          setEditCommentBody('');
+                                        }}
+                                        className="text-xs text-slate-500 px-3 py-1.5 rounded hover:bg-slate-100"
+                                      >
+                                        Cancel
+                                      </button>
+                                      <button
+                                        onClick={() =>
+                                          editComment.mutate({ id: item.id, body: editCommentBody })
+                                        }
+                                        disabled={
+                                          !editCommentBody.trim() ||
+                                          editComment.isPending
+                                        }
+                                        className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded font-medium hover:bg-indigo-500 disabled:opacity-40"
+                                      >
+                                        Save
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">
+                                    {renderCommentBody(item.body)}
+                                  </p>
+                                )}
                               </div>
                             </div>
                           );
