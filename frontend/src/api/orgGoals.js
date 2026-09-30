@@ -15,6 +15,13 @@ export const linkTicketToOrgGoal = (goalId, ticketId) =>
 export const unlinkTicketFromOrgGoal = (goalId, ticketId) =>
   client.delete(`/api/goals/${goalId}/tickets/${ticketId}`);
 
+export const getGoalProgramCandidates = (goalId, q) =>
+  client.get(`/api/goals/${goalId}/program-candidates`, { params: { q } });
+export const linkProgramToOrgGoal = (goalId, programId) =>
+  client.post(`/api/goals/${goalId}/programs`, { program_id: programId });
+export const unlinkProgramFromOrgGoal = (goalId, programId) =>
+  client.delete(`/api/goals/${goalId}/programs/${programId}`);
+
 export const getGoalMembers = (goalId) =>
   client.get(`/api/goals/${goalId}/members`);
 export const addGoalMember = (goalId, userId) =>

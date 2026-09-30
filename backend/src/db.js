@@ -18,6 +18,22 @@ async function query(text, params) {
   }
 }
 
+// Runs fn(client) inside a BEGIN/COMMIT/ROLLBACK transaction on a single pooled client.
+async function withTransaction(fn) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await fn(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 async function runMigrations() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -57,4 +73,4 @@ async function runMigrations() {
   console.log('Database migrations complete');
 }
 
-module.exports = { query, pool, runMigrations };
+module.exports = { query, pool, runMigrations, withTransaction };

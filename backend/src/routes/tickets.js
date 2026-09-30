@@ -187,18 +187,21 @@ router.get('/', async (req, res, next) => {
       } catch (_) { /* ignore malformed JSON */ }
     }
 
-    // Full-text search (FTS with GIN index) — fallback to ILIKE if query is very short
+    // Full-text search (FTS with GIN index) — fallback to ILIKE if query is very short.
+    // Also matches the ticket key (e.g. "MFP-1"), since that's the first thing people try.
     if (search) {
+      params.push(`%${search}%`);
+      const keyMatch = `(p.key || '-' || t.number) ILIKE $${params.length}`;
       if (search.length >= 3) {
         params.push(search);
         conditions.push(`(
           to_tsvector('english', coalesce(t.title,'') || ' ' || coalesce(t.description,''))
           @@ plainto_tsquery('english', $${params.length})
           OR t.title ILIKE '%' || $${params.length} || '%'
+          OR ${keyMatch}
         )`);
       } else {
-        params.push(`%${search}%`);
-        conditions.push(`(t.title ILIKE $${params.length} OR t.description ILIKE $${params.length})`);
+        conditions.push(`(t.title ILIKE $${params.length} OR t.description ILIKE $${params.length} OR ${keyMatch})`);
       }
     }
 
@@ -211,7 +214,7 @@ router.get('/', async (req, res, next) => {
         `${TICKET_SELECT} ${where} ORDER BY t.order_index ASC, t.created_at ASC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
         [...params, parseInt(limit), parseInt(offset)]
       ),
-      query(`SELECT COUNT(*)::int AS total FROM tickets t ${where}`, countParams),
+      query(`SELECT COUNT(*)::int AS total FROM tickets t JOIN projects p ON p.id = t.project_id ${where}`, countParams),
     ]);
 
     res.json({ tickets: dataResult.rows, total: countResult.rows[0].total });

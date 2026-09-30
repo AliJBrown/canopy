@@ -12,6 +12,9 @@ const SYSTEM_PERMISSION_DEFS = [
   { key: 'org_goals.write',  label: 'Create & edit strategic goals', category: 'Strategic Goals' },
   { key: 'org_goals.delete', label: 'Delete strategic goals',         category: 'Strategic Goals' },
   { key: 'org_goals.lock',   label: 'Lock / unlock strategic goals',  category: 'Strategic Goals' },
+  { key: 'programs.write',   label: 'Create & edit programs, clients, and engagements', category: 'Programs' },
+  { key: 'programs.delete',  label: 'Delete programs',                category: 'Programs' },
+  { key: 'clients.write',    label: 'Create & edit client records',   category: 'Programs' },
 ];
 
 router.use(requireAuth, requireAdmin);
@@ -187,6 +190,78 @@ router.put('/users/:id/permissions', async (req, res, next) => {
       [userId]
     );
     res.json(rows.map(r => r.permission));
+  } catch (err) { next(err); }
+});
+
+// ── Program settings (global, admin-only) ───────────────────────────────────
+
+router.get('/program-settings', async (req, res, next) => {
+  try {
+    const { rows: [settings] } = await query('SELECT * FROM program_settings WHERE id = 1');
+    res.json(settings);
+  } catch (err) { next(err); }
+});
+
+router.put('/program-settings', async (req, res, next) => {
+  try {
+    const { ticket_project_mode, shared_project_id } = req.body;
+    const updates = [];
+    const params = [];
+
+    if (ticket_project_mode !== undefined) {
+      if (!['single', 'per_client', 'per_program'].includes(ticket_project_mode)) {
+        return res.status(400).json({ error: 'Invalid ticket_project_mode' });
+      }
+      params.push(ticket_project_mode);
+      updates.push(`ticket_project_mode = $${params.length}`);
+    }
+
+    // shared_project_id: pass an existing project's id to reuse it instead of auto-creating one,
+    // or null to go back to auto-creating a new shared project on next use.
+    if (shared_project_id !== undefined) {
+      if (shared_project_id !== null) {
+        const { rows: [project] } = await query('SELECT id FROM projects WHERE id = $1', [shared_project_id]);
+        if (!project) return res.status(404).json({ error: 'Project not found' });
+      }
+      params.push(shared_project_id);
+      updates.push(`shared_project_id = $${params.length}`);
+    }
+
+    if (!updates.length) return res.status(400).json({ error: 'Nothing to update' });
+    updates.push('updated_at = NOW()');
+
+    const { rows: [settings] } = await query(
+      `UPDATE program_settings SET ${updates.join(', ')} WHERE id = 1 RETURNING *`,
+      params
+    );
+    res.json(settings);
+  } catch (err) { next(err); }
+});
+
+// ── Feature flags (global, admin-only to write; read publicly via /api/feature-flags) ───────
+
+router.put('/feature-flags', async (req, res, next) => {
+  try {
+    const { clients_enabled, programs_enabled } = req.body;
+    const updates = [];
+    const params = [];
+
+    if (clients_enabled !== undefined) {
+      params.push(!!clients_enabled);
+      updates.push(`clients_enabled = $${params.length}`);
+    }
+    if (programs_enabled !== undefined) {
+      params.push(!!programs_enabled);
+      updates.push(`programs_enabled = $${params.length}`);
+    }
+    if (!updates.length) return res.status(400).json({ error: 'Nothing to update' });
+    updates.push('updated_at = NOW()');
+
+    const { rows: [flags] } = await query(
+      `UPDATE feature_flags SET ${updates.join(', ')} WHERE id = 1 RETURNING *`,
+      params
+    );
+    res.json(flags);
   } catch (err) { next(err); }
 });
 

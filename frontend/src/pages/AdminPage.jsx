@@ -1,11 +1,14 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2, ChevronDown, ChevronRight, Shield, Users, UserCheck, UserX, RefreshCw, KeyRound, X, Pencil } from 'lucide-react';
+import { Plus, Trash2, ChevronDown, ChevronRight, Shield, Users, UserCheck, UserX, RefreshCw, KeyRound, X, Pencil, Boxes } from 'lucide-react';
 import {
   getAdminUsers, createAdminUser, updateAdminUser, deleteAdminUser,
   getTeams, createTeam, deleteTeam, getTeamMembers, addTeamMember, removeTeamMember,
   getSystemPermissions, setUserPermissions,
+  getProgramSettings, updateProgramSettings, updateFeatureFlags,
 } from '../api/admin';
+import { getFeatureFlags } from '../api/featureFlags';
+import { getProjects } from '../api/projects';
 import { useApp } from '../context/AppContext';
 import { Avatar } from '../components/Badge';
 
@@ -236,7 +239,7 @@ export default function AdminPage() {
       </div>
 
       <div className="flex gap-1 bg-slate-100 rounded-lg p-0.5 w-fit mb-6">
-        {[['users', Users, 'Users'], ['teams', Users, 'Teams'], ['permissions', KeyRound, 'Permissions']].map(([key, Icon, label]) => (
+        {[['users', Users, 'Users'], ['teams', Users, 'Teams'], ['permissions', KeyRound, 'Permissions'], ['programs', Boxes, 'Programs']].map(([key, Icon, label]) => (
           <button key={key} onClick={() => setTab(key)}
             className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
               tab === key ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
@@ -369,6 +372,118 @@ export default function AdminPage() {
 
       {tab === 'permissions' && (
         <PermissionsTab users={users} />
+      )}
+
+      {tab === 'programs' && (
+        <ProgramSettingsTab />
+      )}
+    </div>
+  );
+}
+
+const TICKET_PROJECT_MODES = [
+  { value: 'single', label: 'One shared project', hint: 'Every ticket-backed checklist item across all Programs lands in a single shared project (created automatically the first time it’s needed).' },
+  { value: 'per_client', label: 'One project per client', hint: 'Each client gets its own project. Each of that client’s programs gets its own Epic inside it, so several programs sharing one client project stay organized.' },
+  { value: 'per_program', label: 'One project per program', hint: 'Each individual program (client project) gets its own project the first time it needs a ticket-backed checklist item.' },
+];
+
+function ProgramSettingsTab() {
+  const qc = useQueryClient();
+  const { data: settings, isLoading } = useQuery({
+    queryKey: ['program-settings'],
+    queryFn: getProgramSettings,
+  });
+  const { data: flags } = useQuery({ queryKey: ['feature-flags'], queryFn: getFeatureFlags });
+  const { data: projects = [] } = useQuery({ queryKey: ['projects'], queryFn: getProjects });
+  const mut = useMutation({
+    mutationFn: updateProgramSettings,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['program-settings'] }),
+  });
+  const flagsMut = useMutation({
+    mutationFn: updateFeatureFlags,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['feature-flags'] }),
+  });
+
+  if (isLoading) {
+    return <div className="text-sm text-slate-400 py-8 text-center">Loading...</div>;
+  }
+
+  return (
+    <div className="space-y-6 max-w-2xl">
+      <div>
+        <h2 className="text-sm font-semibold text-slate-800">Features</h2>
+        <p className="text-xs text-slate-500 mt-0.5">
+          Turn off parts of Programs your team doesn't use. This only hides the nav link and page
+          for everyone else — you can still re-enable it here.
+        </p>
+      </div>
+      <div className="bg-white rounded-xl border border-slate-200 divide-y divide-slate-50">
+        {[['programs_enabled', 'Programs'], ['clients_enabled', 'Clients']].map(([key, label]) => (
+          <label key={key} className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-slate-50">
+            <span className="text-sm font-medium text-slate-800">Show {label}</span>
+            <input
+              type="checkbox"
+              checked={flags?.[key] ?? true}
+              disabled={flagsMut.isPending}
+              onChange={e => flagsMut.mutate({ [key]: e.target.checked })}
+              className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-400"
+            />
+          </label>
+        ))}
+      </div>
+
+      <div>
+        <h2 className="text-sm font-semibold text-slate-800">Programs: ticket-backed checklist items</h2>
+        <p className="text-xs text-slate-500 mt-0.5">
+          When a checklist item on a client engagement is created as a full ticket (rather than a
+          lightweight task), it needs a project to live in. Choose how that project is chosen.
+        </p>
+      </div>
+
+      <div className="bg-white rounded-xl border border-slate-200 divide-y divide-slate-50">
+        {TICKET_PROJECT_MODES.filter(m => flags?.clients_enabled !== false || m.value !== 'per_client').map(m => (
+          <label key={m.value} className="flex items-start gap-3 px-4 py-3 cursor-pointer hover:bg-slate-50">
+            <input
+              type="radio"
+              name="ticket_project_mode"
+              className="mt-0.5"
+              checked={settings?.ticket_project_mode === m.value}
+              disabled={mut.isPending}
+              onChange={() => mut.mutate({ ticket_project_mode: m.value })}
+            />
+            <div>
+              <div className="text-sm font-medium text-slate-800">{m.label}</div>
+              <div className="text-xs text-slate-500 mt-0.5">{m.hint}</div>
+            </div>
+          </label>
+        ))}
+      </div>
+
+      {settings?.ticket_project_mode !== 'single' && (
+        <p className="text-xs text-slate-500">
+          {settings?.ticket_project_mode === 'per_client'
+            ? 'To point a specific client at a project you already have, set "Linked project" on that client in Clients.'
+            : 'To point a specific program at a project you already have, open that program in Programs and set its "Linked project".'}
+        </p>
+      )}
+
+      {settings?.ticket_project_mode === 'single' && (
+        <div className="bg-white rounded-xl border border-slate-200 p-4">
+          <label className="block text-sm font-medium text-slate-800 mb-1">Shared project</label>
+          <p className="text-xs text-slate-500 mb-2">
+            Point this at a project you already work out of instead of letting Canopy create a new
+            one. Leave it on auto-create to have Canopy make a fresh project the first time it's
+            needed.
+          </p>
+          <select
+            value={settings?.shared_project_id || ''}
+            disabled={mut.isPending}
+            onChange={e => mut.mutate({ shared_project_id: e.target.value || null })}
+            className="border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-indigo-300 w-full max-w-sm">
+            <option value="">Auto-create a new one</option>
+            {projects.map(p => <option key={p.id} value={p.id}>{p.name} ({p.key})</option>)}
+          </select>
+        </div>
       )}
     </div>
   );

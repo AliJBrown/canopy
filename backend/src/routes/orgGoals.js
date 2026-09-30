@@ -109,8 +109,9 @@ async function computeOrgTree(userId, bypassPrivacy) {
       CASE WHEN p.id IS NOT NULL
         THEN json_build_object('id', p.id, 'name', p.name, 'key', p.key)
         ELSE NULL END AS project,
-      COUNT(DISTINCT tgl.ticket_id)::int AS linked_count,
-      COUNT(DISTINCT tgl.ticket_id) FILTER (WHERE tk.status = 'done')::int AS completed_count,
+      (COUNT(DISTINCT tgl.ticket_id) + COUNT(DISTINCT pgl.program_id))::int AS linked_count,
+      (COUNT(DISTINCT tgl.ticket_id) FILTER (WHERE tk.status = 'done')
+       + COUNT(DISTINCT pgl.program_id) FILTER (WHERE pr2.status = 'completed'))::int AS completed_count,
       (SELECT COALESCE(json_agg(
           json_build_object('id', ua.id, 'name', ua.name, 'color', ua.color, 'avatar_url', ua.avatar_url)
           ORDER BY ua.name
@@ -123,6 +124,8 @@ async function computeOrgTree(userId, bypassPrivacy) {
     LEFT JOIN projects p ON p.id = g.project_id
     LEFT JOIN ticket_goal_links tgl ON tgl.goal_id = g.id
     LEFT JOIN tickets tk ON tk.id = tgl.ticket_id
+    LEFT JOIN program_goal_links pgl ON pgl.goal_id = g.id
+    LEFT JOIN programs pr2 ON pr2.id = pgl.program_id
     GROUP BY g.id, u.id, u.name, u.color, u.avatar_url, p.id, p.name, p.key
     ORDER BY g.position, g.created_at
   `);
@@ -197,8 +200,9 @@ async function computeGoalSubtree(goalId) {
       CASE WHEN p.id IS NOT NULL
         THEN json_build_object('id', p.id, 'name', p.name, 'key', p.key)
         ELSE NULL END AS project,
-      COUNT(DISTINCT tgl.ticket_id)::int AS linked_count,
-      COUNT(DISTINCT tgl.ticket_id) FILTER (WHERE tk.status = 'done')::int AS completed_count,
+      (COUNT(DISTINCT tgl.ticket_id) + COUNT(DISTINCT pgl.program_id))::int AS linked_count,
+      (COUNT(DISTINCT tgl.ticket_id) FILTER (WHERE tk.status = 'done')
+       + COUNT(DISTINCT pgl.program_id) FILTER (WHERE pr2.status = 'completed'))::int AS completed_count,
       (SELECT COALESCE(json_agg(
           json_build_object('id', ua.id, 'name', ua.name, 'color', ua.color, 'avatar_url', ua.avatar_url)
           ORDER BY ua.name
@@ -211,6 +215,8 @@ async function computeGoalSubtree(goalId) {
     LEFT JOIN projects p ON p.id = g.project_id
     LEFT JOIN ticket_goal_links tgl ON tgl.goal_id = g.id
     LEFT JOIN tickets tk ON tk.id = tgl.ticket_id
+    LEFT JOIN program_goal_links pgl ON pgl.goal_id = g.id
+    LEFT JOIN programs pr2 ON pr2.id = pgl.program_id
     GROUP BY g.id, u.id, u.name, u.color, u.avatar_url, p.id, p.name, p.key
     ORDER BY g.position, g.created_at
   `, [goalId]);
@@ -347,6 +353,17 @@ router.get('/:id', async (req, res, next) => {
       ORDER BY u.name
     `, [req.params.id]);
 
+    // Linked programs — a goal's progress can also be driven by a program's completion
+    // (see computeNodeProgress's linked_count/completed_count, merged in computeGoalSubtree).
+    const { rows: programs } = await query(`
+      SELECT pr.id, pr.name, pr.status, pr.payment_status, c.name AS client_name
+      FROM program_goal_links pgl
+      JOIN programs pr ON pr.id = pgl.program_id
+      LEFT JOIN clients c ON c.id = pr.client_id
+      WHERE pgl.goal_id = $1
+      ORDER BY pgl.created_at DESC
+    `, [req.params.id]);
+
     res.json({
       ...goal,
       // Merge computed values from the recursive subtree calculation
@@ -357,6 +374,7 @@ router.get('/:id', async (req, res, next) => {
       ancestors,
       children,
       tickets,
+      programs,
       assignees,
     });
   } catch (err) { next(err); }
@@ -449,6 +467,53 @@ router.delete('/:id/tickets/:ticketId', async (req, res, next) => {
     await query(
       'DELETE FROM ticket_goal_links WHERE goal_id = $1 AND ticket_id = $2',
       [req.params.id, req.params.ticketId]
+    );
+    res.status(204).send();
+  } catch (err) { next(err); }
+});
+
+// GET /:id/program-candidates?q=search — search programs not yet linked to this goal
+router.get('/:id/program-candidates', async (req, res, next) => {
+  try {
+    if (!(await checkSystemPermission(req.user, 'org_goals.write')))
+      return res.status(403).json({ error: 'You do not have permission to modify strategic goals' });
+    const { q = '' } = req.query;
+    const { rows } = await query(`
+      SELECT pr.id, pr.name, pr.status, c.name AS client_name
+      FROM programs pr
+      LEFT JOIN clients c ON c.id = pr.client_id
+      WHERE pr.id NOT IN (SELECT program_id FROM program_goal_links WHERE goal_id = $1)
+        AND ($2 = '' OR pr.name ILIKE '%' || $2 || '%' OR c.name ILIKE '%' || $2 || '%')
+      ORDER BY pr.created_at DESC
+      LIMIT 25
+    `, [req.params.id, q]);
+    res.json(rows);
+  } catch (err) { next(err); }
+});
+
+// POST /:id/programs — link a program to this goal
+router.post('/:id/programs', async (req, res, next) => {
+  try {
+    if (!(await checkSystemPermission(req.user, 'org_goals.write')))
+      return res.status(403).json({ error: 'You do not have permission to modify strategic goals' });
+    const { program_id } = req.body;
+    if (!program_id) return res.status(400).json({ error: 'program_id required' });
+    await query(
+      'INSERT INTO program_goal_links (program_id, goal_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+      [program_id, req.params.id]
+    );
+    res.status(201).json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// DELETE /:id/programs/:programId — unlink
+router.delete('/:id/programs/:programId', async (req, res, next) => {
+  try {
+    if (!(await checkSystemPermission(req.user, 'org_goals.write')))
+      return res.status(403).json({ error: 'You do not have permission to modify strategic goals' });
+    await query(
+      'DELETE FROM program_goal_links WHERE goal_id = $1 AND program_id = $2',
+      [req.params.id, req.params.programId]
     );
     res.status(204).send();
   } catch (err) { next(err); }

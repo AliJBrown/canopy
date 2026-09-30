@@ -395,7 +395,7 @@ function GoalCard({ goal, onClick }) {
           )}
           {ticketCount > 0 && (
             <span className="bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded font-medium text-[10px]">
-              {completedCount}/{ticketCount} tickets
+              {completedCount}/{ticketCount} linked
             </span>
           )}
         </div>

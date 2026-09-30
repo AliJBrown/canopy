@@ -28,4 +28,11 @@ export const getSystemPermissions = () => client.get('/api/admin/system-permissi
 export const getUserPermissions = (userId) => client.get(`/api/admin/users/${userId}/permissions`);
 export const setUserPermissions = (userId, permissions) => client.put(`/api/admin/users/${userId}/permissions`, { permissions });
 
+// Program settings
+export const getProgramSettings = () => client.get('/api/admin/program-settings');
+export const updateProgramSettings = (data) => client.put('/api/admin/program-settings', data);
+
+// Feature flags
+export const updateFeatureFlags = (data) => client.put('/api/admin/feature-flags', data);
+
 

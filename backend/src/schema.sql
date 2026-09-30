@@ -606,3 +606,139 @@ BEGIN
     END LOOP;
   END LOOP;
 END $$;
+
+-- ============================================================
+-- PROGRAMS: client project/engagement tracking (separate from Goals/Projects)
+-- A Client is a company. A Program is one project/engagement belonging to a client
+-- (a client can have multiple simultaneous Programs). Every Program moves through the
+-- same global, admin-configurable pipeline of stages, so they can all be shown together
+-- in one master list.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS clients (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR(255) NOT NULL,
+  contact_person VARCHAR(255) DEFAULT '',
+  contact_email VARCHAR(255) DEFAULT '',
+  contact_phone VARCHAR(50) DEFAULT '',
+  notes TEXT DEFAULT '',
+  project_id UUID REFERENCES projects(id) ON DELETE SET NULL,
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Global, shared by every program (admin-managed, same shape as project_statuses)
+CREATE TABLE IF NOT EXISTS pipeline_stages (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR(100) NOT NULL,
+  slug VARCHAR(50) NOT NULL UNIQUE,
+  color VARCHAR(7) NOT NULL DEFAULT '#6366f1',
+  position INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- One row per client project/engagement
+CREATE TABLE IF NOT EXISTS programs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id UUID REFERENCES clients(id) ON DELETE CASCADE,
+  name VARCHAR(255) NOT NULL,
+  owner_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'active'
+    CHECK (status IN ('active', 'on_hold', 'at_risk', 'completed', 'cancelled')),
+  payment_status VARCHAR(20) NOT NULL DEFAULT 'pending'
+    CHECK (payment_status IN ('pending', 'invoiced', 'paid')),
+  project_id UUID REFERENCES projects(id) ON DELETE SET NULL,
+  is_archived BOOLEAN NOT NULL DEFAULT false,
+  notes TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS programs_client_id ON programs(client_id);
+
+CREATE TABLE IF NOT EXISTS program_checklist_items (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  program_id UUID NOT NULL REFERENCES programs(id) ON DELETE CASCADE,
+  stage_id UUID NOT NULL REFERENCES pipeline_stages(id) ON DELETE CASCADE,
+  item_type VARCHAR(10) NOT NULL CHECK (item_type IN ('task', 'ticket')),
+  title VARCHAR(500),
+  is_done BOOLEAN NOT NULL DEFAULT false,
+  ticket_id UUID REFERENCES tickets(id) ON DELETE CASCADE,
+  position INTEGER NOT NULL DEFAULT 0,
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  completed_at TIMESTAMPTZ,
+  CHECK (
+    (item_type = 'task' AND title IS NOT NULL) OR
+    (item_type = 'ticket' AND ticket_id IS NOT NULL)
+  )
+);
+CREATE INDEX IF NOT EXISTS program_checklist_items_program_stage
+  ON program_checklist_items(program_id, stage_id);
+CREATE INDEX IF NOT EXISTS program_checklist_items_ticket_id
+  ON program_checklist_items(ticket_id);
+
+INSERT INTO pipeline_stages (name, slug, position) VALUES
+  ('Client Acquisition', 'client_acquisition', 0),
+  ('Contract Signed', 'contract_signed', 1),
+  ('Requirements Acceptance', 'requirements_acceptance', 2),
+  ('Execution', 'execution', 3),
+  ('Delivery', 'delivery', 4),
+  ('Payment', 'payment', 5),
+  ('Project Close', 'project_close', 6)
+ON CONFLICT DO NOTHING;
+
+-- Singleton settings row — dedicated purpose-built table, matching this schema's convention
+-- of no generic key-value settings store.
+CREATE TABLE IF NOT EXISTS program_settings (
+  id INTEGER PRIMARY KEY DEFAULT 1,
+  ticket_project_mode VARCHAR(20) NOT NULL DEFAULT 'single'
+    CHECK (ticket_project_mode IN ('single', 'per_client', 'per_program')),
+  shared_project_id UUID REFERENCES projects(id) ON DELETE SET NULL,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+INSERT INTO program_settings (id) VALUES (1) ON CONFLICT DO NOTHING;
+
+DROP TRIGGER IF EXISTS clients_updated_at ON clients;
+CREATE TRIGGER clients_updated_at BEFORE UPDATE ON clients
+FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+DROP TRIGGER IF EXISTS programs_updated_at ON programs;
+CREATE TRIGGER programs_updated_at BEFORE UPDATE ON programs
+FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+-- Lets a stage be marked in-progress/done manually (a stage may need no checklist items at
+-- all), and gives each (program, stage) a place for free-text notes.
+CREATE TABLE IF NOT EXISTS program_stage_progress (
+  program_id UUID NOT NULL REFERENCES programs(id) ON DELETE CASCADE,
+  stage_id UUID NOT NULL REFERENCES pipeline_stages(id) ON DELETE CASCADE,
+  manual_state VARCHAR(20) CHECK (manual_state IN ('not_started', 'active', 'done')),
+  notes TEXT NOT NULL DEFAULT '',
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  PRIMARY KEY (program_id, stage_id)
+);
+
+-- Per-program epic, used only in 'per_client' mode: the ticket that represents this program
+-- inside its client's shared project. Sub-task checklist tickets get parent_id = this.
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS epic_ticket_id UUID REFERENCES tickets(id) ON DELETE SET NULL;
+
+-- Program -> org-level Strategic Goal references (mirrors ticket_goal_links' shape). Purely a
+-- reference link -- no changes to Goals' own progress/rollup computation.
+CREATE TABLE IF NOT EXISTS program_goal_links (
+  program_id UUID NOT NULL REFERENCES programs(id) ON DELETE CASCADE,
+  goal_id UUID NOT NULL REFERENCES project_goals(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (program_id, goal_id)
+);
+
+-- Singleton, mirrors program_settings' shape. Read by ANY authenticated user (nav needs it);
+-- only admins can write it -- so it lives in its own table/route rather than inside
+-- program_settings, which is entirely behind requireAdmin.
+CREATE TABLE IF NOT EXISTS feature_flags (
+  id INTEGER PRIMARY KEY DEFAULT 1,
+  clients_enabled BOOLEAN NOT NULL DEFAULT true,
+  programs_enabled BOOLEAN NOT NULL DEFAULT true,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+INSERT INTO feature_flags (id) VALUES (1) ON CONFLICT DO NOTHING;

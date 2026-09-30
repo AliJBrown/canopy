@@ -16,6 +16,8 @@ import AutomationsPage from './pages/AutomationsPage';
 import AdminPage from './pages/AdminPage';
 import RoadmapPage from './pages/RoadmapPage';
 import SprintPlanningPage from './pages/SprintPlanningPage';
+import ProgramsPage from './pages/ProgramsPage';
+import ClientsPage from './pages/ClientsPage';
 
 function AuthCallback() {
   const navigate = useNavigate();
@@ -59,6 +61,12 @@ export default function App() {
               <Route path="goals" element={<ErrorBoundary><OrgGoalsPage /></ErrorBoundary>} />
               <Route path="goals/:goalId" element={<ErrorBoundary><GoalDetailPage /></ErrorBoundary>} />
               <Route path="my-goals" element={<ErrorBoundary><MyGoalsPage /></ErrorBoundary>} />
+              <Route element={<ProtectedRoute requireFeature="programs" />}>
+                <Route path="programs" element={<ErrorBoundary><ProgramsPage /></ErrorBoundary>} />
+              </Route>
+              <Route element={<ProtectedRoute requireFeature="clients" />}>
+                <Route path="clients" element={<ErrorBoundary><ClientsPage /></ErrorBoundary>} />
+              </Route>
               <Route path="p/:projectKey" element={<ErrorBoundary><ProjectBoard /></ErrorBoundary>} />
               <Route path="p/:projectKey/reports" element={<ErrorBoundary><ReportsPage /></ErrorBoundary>} />
               <Route path="p/:projectKey/goals" element={<ErrorBoundary><GoalsPage /></ErrorBoundary>} />

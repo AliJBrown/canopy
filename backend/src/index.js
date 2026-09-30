@@ -44,6 +44,15 @@ app.use('/api/tokens',                           require('./routes/apiTokens'));
 app.use('/api/notifications',                    require('./routes/notifications'));
 app.use('/api/search',                           require('./routes/search'));
 
+// Programs: client project/engagement tracking (Client = company, Program = one client project)
+app.use('/api/clients',                              require('./routes/clients'));
+app.use('/api/pipeline-stages',                      require('./routes/pipelineStages'));
+app.use('/api/programs',                             require('./routes/programs'));
+app.use('/api/programs/:programId/checklist-items',  require('./routes/programChecklist'));
+app.use('/api/programs/:programId/stage-progress',   require('./routes/programStageProgress'));
+app.use('/api/programs/:programId/goal-links',       require('./routes/programGoalLinks'));
+app.use('/api/feature-flags',                        require('./routes/featureFlags'));
+
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
 app.use((err, req, res, next) => {

@@ -9,6 +9,46 @@ const {
 
 router.use(requireAuth);
 
+const DEFAULT_STATUSES = [
+  ['backlog',     'Backlog',     '#94a3b8', 'todo',        0, true],
+  ['todo',        'To Do',       '#60a5fa', 'todo',        1, false],
+  ['in_progress', 'In Progress', '#f59e0b', 'in_progress', 2, false],
+  ['in_review',   'In Review',   '#8b5cf6', 'in_progress', 3, false],
+  ['blocked',     'Blocked',     '#ef4444', 'in_progress', 4, false],
+  ['done',        'Done',        '#10b981', 'done',        5, false],
+];
+
+// Creates a project plus its standard side effects (owner membership, default statuses,
+// default role permissions). `runQuery` defaults to the pooled `query` helper but can be
+// passed a transaction client's `.query.bind(client)` for callers that need atomicity
+// (see services/programProjects.js).
+async function createProjectWithDefaults({ name, key, description = '', ownerUserId, runQuery = query }) {
+  const upperKey = key.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
+
+  const { rows } = await runQuery(
+    'INSERT INTO projects (name, key, description) VALUES ($1, $2, $3) RETURNING *',
+    [name, upperKey, description]
+  );
+  const project = rows[0];
+
+  await runQuery(
+    'INSERT INTO project_members (project_id, user_id, role) VALUES ($1, $2, $3)',
+    [project.id, ownerUserId, 'owner']
+  );
+
+  for (const [slug, sName, color, category, position, is_default] of DEFAULT_STATUSES) {
+    await runQuery(
+      `INSERT INTO project_statuses (project_id, slug, name, color, category, position, is_default)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING`,
+      [project.id, slug, sName, color, category, position, is_default]
+    );
+  }
+
+  await seedProjectPermissions(project.id, runQuery);
+
+  return project;
+}
+
 router.get('/', async (req, res, next) => {
   try {
     const isAdmin = req.user.role === 'admin';
@@ -55,41 +95,9 @@ router.post('/', async (req, res, next) => {
   try {
     const { name, key, description = '' } = req.body;
     if (!name || !key) return res.status(400).json({ error: 'name and key are required' });
-    const upperKey = key.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
 
-    const { rows } = await query(
-      'INSERT INTO projects (name, key, description) VALUES ($1, $2, $3) RETURNING *',
-      [name, upperKey, description]
-    );
-    const projectId = rows[0].id;
-
-    // Creator becomes owner
-    await query(
-      'INSERT INTO project_members (project_id, user_id, role) VALUES ($1, $2, $3)',
-      [projectId, req.user.id, 'owner']
-    );
-
-    // Seed default workflow statuses
-    const defaultStatuses = [
-      ['backlog',     'Backlog',     '#94a3b8', 'todo',        0, true],
-      ['todo',        'To Do',       '#60a5fa', 'todo',        1, false],
-      ['in_progress', 'In Progress', '#f59e0b', 'in_progress', 2, false],
-      ['in_review',   'In Review',   '#8b5cf6', 'in_progress', 3, false],
-      ['blocked',     'Blocked',     '#ef4444', 'in_progress', 4, false],
-      ['done',        'Done',        '#10b981', 'done',        5, false],
-    ];
-    for (const [slug, name, color, category, position, is_default] of defaultStatuses) {
-      await query(
-        `INSERT INTO project_statuses (project_id, slug, name, color, category, position, is_default)
-         VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING`,
-        [projectId, slug, name, color, category, position, is_default]
-      );
-    }
-
-    // Seed default role permissions
-    await seedProjectPermissions(projectId);
-
-    res.status(201).json({ ...rows[0], my_role: 'owner' });
+    const project = await createProjectWithDefaults({ name, key, description, ownerUserId: req.user.id });
+    res.status(201).json({ ...project, my_role: 'owner' });
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ error: 'Project key already exists' });
     next(err);
@@ -202,3 +210,4 @@ router.post('/:id/role-permissions/reset', async (req, res, next) => {
 });
 
 module.exports = router;
+module.exports.createProjectWithDefaults = createProjectWithDefaults;

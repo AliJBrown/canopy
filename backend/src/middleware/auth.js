@@ -235,7 +235,9 @@ async function getUserSystemPermissions(userId) {
 }
 
 // Seeds default role permissions for a newly-created project.
-async function seedProjectPermissions(projectId) {
+// `runQuery` defaults to the pooled `query` helper but can be passed a transaction
+// client's `.query.bind(client)` so this runs atomically with the project insert.
+async function seedProjectPermissions(projectId, runQuery = query) {
   const entries = Object.entries(DEFAULT_PROJECT_PERMISSIONS)
     .flatMap(([role, perms]) => perms.map(perm => [role, perm]));
 
@@ -244,7 +246,7 @@ async function seedProjectPermissions(projectId) {
   const placeholders = entries.map((_, i) => `($1, $${i * 2 + 2}, $${i * 2 + 3})`).join(', ');
   const values = [projectId, ...entries.flatMap(([role, perm]) => [role, perm])];
 
-  await query(
+  await runQuery(
     `INSERT INTO project_role_permissions (project_id, role, permission) VALUES ${placeholders} ON CONFLICT DO NOTHING`,
     values
   );

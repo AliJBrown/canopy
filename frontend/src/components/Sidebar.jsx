@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { NavLink, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { LayoutGrid, List, Layers, BarChart2, Target, Zap, Plus, ChevronDown, ChevronRight, LogOut, Shield, KeyRound, Lock, Search, Map } from 'lucide-react';
+import { LayoutGrid, List, Layers, BarChart2, Target, Zap, Plus, ChevronDown, ChevronRight, LogOut, Shield, KeyRound, Lock, Search, Map, Boxes, Building2 } from 'lucide-react';
 import { getProjects, createProject } from '../api/projects';
 import { getSprints } from '../api/sprints';
+import { getFeatureFlags } from '../api/featureFlags';
 import { useApp } from '../context/AppContext';
 import { Avatar } from './Badge';
 import { changePassword } from '../api/auth';
@@ -172,6 +173,7 @@ export default function Sidebar() {
   const { user, logout } = useApp();
   const { projectKey: activeProjectKey } = useParams();
   const { data: projectsData } = useQuery({ queryKey: ['projects'], queryFn: getProjects });
+  const { data: flags } = useQuery({ queryKey: ['feature-flags'], queryFn: getFeatureFlags });
   if (projectsData !== undefined && !Array.isArray(projectsData)) {
     console.error('[Sidebar] projects is not an array:', typeof projectsData, projectsData);
   }
@@ -209,11 +211,27 @@ export default function Sidebar() {
           <Target size={14} className="text-indigo-400" /> Strategic Goals
         </NavLink>
         <NavLink to="/my-goals"
-          className={({ isActive }) => `flex items-center gap-2 px-2 py-1.5 text-sm rounded-md transition-colors mb-2 ${
+          className={({ isActive }) => `flex items-center gap-2 px-2 py-1.5 text-sm rounded-md transition-colors ${
             isActive ? 'text-white bg-indigo-600/20' : 'text-slate-300 hover:bg-slate-800 hover:text-white'
           }`}>
           <Lock size={14} className="text-slate-400" /> My Goals
         </NavLink>
+        {flags?.programs_enabled !== false && (
+          <NavLink to="/programs"
+            className={({ isActive }) => `flex items-center gap-2 px-2 py-1.5 text-sm rounded-md transition-colors ${
+              isActive ? 'text-white bg-indigo-600/20' : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+            }`}>
+            <Boxes size={14} className="text-indigo-400" /> Programs
+          </NavLink>
+        )}
+        {flags?.clients_enabled !== false && (
+          <NavLink to="/clients"
+            className={({ isActive }) => `flex items-center gap-2 px-2 py-1.5 text-sm rounded-md transition-colors mb-2 ${
+              isActive ? 'text-white bg-indigo-600/20' : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+            }`}>
+            <Building2 size={14} className="text-slate-400" /> Clients
+          </NavLink>
+        )}
 
         <button onClick={() => setProjectsOpen(o => !o)}
           className="w-full flex items-center justify-between px-2 py-1 text-xs font-semibold text-slate-400 uppercase tracking-wider hover:text-slate-200">
