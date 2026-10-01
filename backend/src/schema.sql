@@ -648,6 +648,7 @@ CREATE TABLE IF NOT EXISTS programs (
     CHECK (status IN ('active', 'on_hold', 'at_risk', 'completed', 'cancelled')),
   payment_status VARCHAR(20) NOT NULL DEFAULT 'pending'
     CHECK (payment_status IN ('pending', 'invoiced', 'paid')),
+  priority VARCHAR(2) NOT NULL DEFAULT 'p2' CHECK (priority IN ('p0', 'p1', 'p2', 'p3')),
   project_id UUID REFERENCES projects(id) ON DELETE SET NULL,
   is_archived BOOLEAN NOT NULL DEFAULT false,
   notes TEXT NOT NULL DEFAULT '',

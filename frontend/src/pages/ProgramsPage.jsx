@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Boxes, Search, Plus, Settings2, X, Check, RefreshCw, StickyNote } from 'lucide-react';
-import { getPrograms, createProgram, updateProgram } from '../api/programs';
+import { Boxes, Search, Plus, Settings2, X, Check, RefreshCw, StickyNote, Trash2, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
+import { getPrograms, createProgram, updateProgram, deleteProgram } from '../api/programs';
 import { getClients } from '../api/clients';
 import { getUsers } from '../api/users';
 import { getFeatureFlags } from '../api/featureFlags';
@@ -23,6 +23,13 @@ const PAYMENT_META = {
   pending:  { label: 'Pending',  cls: 'bg-slate-100 text-slate-500' },
   invoiced: { label: 'Invoiced', cls: 'bg-amber-100 text-amber-700' },
   paid:     { label: 'Paid',     cls: 'bg-emerald-100 text-emerald-700' },
+};
+
+const PRIORITY_META = {
+  p0: { label: 'P0', cls: 'bg-red-100 text-red-700',       dot: '#ef4444' },
+  p1: { label: 'P1', cls: 'bg-orange-100 text-orange-700', dot: '#f97316' },
+  p2: { label: 'P2', cls: 'bg-amber-100 text-amber-700',   dot: '#f59e0b' },
+  p3: { label: 'P3', cls: 'bg-slate-100 text-slate-500',   dot: '#94a3b8' },
 };
 
 const DOT_PALETTE = ['#f59e0b', '#3b82f6', '#94a3b8', '#f97316', '#a855f7', '#ef4444', '#10b981', '#ec4899'];
@@ -69,6 +76,20 @@ function StageCell({ stageState, onClick }) {
   );
 }
 
+function SortHeader({ label, sortKey, sort, onSort }) {
+  const active = sort.key === sortKey;
+  const Icon = !active ? ChevronsUpDown : sort.dir === 'asc' ? ChevronUp : ChevronDown;
+  return (
+    <button onClick={() => onSort(sortKey)}
+      className={`flex items-center gap-1 text-xs font-semibold uppercase tracking-wider transition-colors ${
+        active ? 'text-indigo-600' : 'text-slate-500 hover:text-slate-700'
+      }`}>
+      {label}
+      <Icon size={12} className={active ? 'text-indigo-500' : 'text-slate-300'} />
+    </button>
+  );
+}
+
 function AddProgramModal({ clients, clientsEnabled, onClose }) {
   const qc = useQueryClient();
   const [mode, setMode] = useState('existing'); // 'existing' | 'new'
@@ -76,6 +97,7 @@ function AddProgramModal({ clients, clientsEnabled, onClose }) {
   const [newClientName, setNewClientName] = useState('');
   const [programName, setProgramName] = useState('');
   const [ownerId, setOwnerId] = useState('');
+  const [priority, setPriority] = useState('p2');
   const { data: users = [] } = useQuery({ queryKey: ['users'], queryFn: getUsers });
 
   const selectedClient = clients.find(c => c.id === clientId);
@@ -87,6 +109,7 @@ function AddProgramModal({ clients, clientsEnabled, onClose }) {
       new_client: clientsEnabled && mode === 'new' ? { name: newClientName } : undefined,
       name: effectiveName,
       owner_id: ownerId || null,
+      priority,
     }),
     onSuccess: () => { qc.invalidateQueries(['programs']); qc.invalidateQueries(['clients']); onClose(); },
   });
@@ -137,12 +160,20 @@ function AddProgramModal({ clients, clientsEnabled, onClose }) {
               required={!clientsEnabled} autoFocus={!clientsEnabled} className={cls} />
           </div>
 
-          <div>
-            <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Owner</label>
-            <select value={ownerId} onChange={e => setOwnerId(e.target.value)} className={cls}>
-              <option value="">Unassigned</option>
-              {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-            </select>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Owner</label>
+              <select value={ownerId} onChange={e => setOwnerId(e.target.value)} className={cls}>
+                <option value="">Unassigned</option>
+                {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Priority</label>
+              <select value={priority} onChange={e => setPriority(e.target.value)} className={cls}>
+                {Object.entries(PRIORITY_META).map(([v, m]) => <option key={v} value={v}>{m.label}</option>)}
+              </select>
+            </div>
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
@@ -159,14 +190,16 @@ function AddProgramModal({ clients, clientsEnabled, onClose }) {
   );
 }
 
-const EMPTY_FILTERS = { search: '', clientId: '', status: '', payment: '' };
+const EMPTY_FILTERS = { search: '', clientId: '', status: '', payment: '', priority: '' };
 
 export default function ProgramsPage() {
   const qc = useQueryClient();
   const { user } = useApp();
   const canManage = user?.role === 'admin' || user?.systemPermissions?.includes('programs.write');
+  const canDelete = user?.role === 'admin' || user?.systemPermissions?.includes('programs.delete');
 
   const [filters, setFilters] = useState(EMPTY_FILTERS);
+  const [sort, setSort] = useState({ key: null, dir: 'asc' });
   const [showAdd, setShowAdd] = useState(false);
   const [showManageStages, setShowManageStages] = useState(false);
   const [activeCell, setActiveCell] = useState(null); // { programId, stageId, stageName, clientName }
@@ -184,9 +217,15 @@ export default function ProgramsPage() {
     onSuccess: () => qc.invalidateQueries(['programs']),
   });
 
+  const deleteProg = useMutation({
+    mutationFn: deleteProgram,
+    onSuccess: () => qc.invalidateQueries(['programs']),
+    onError: (e) => alert(e.error || 'Failed to delete program'),
+  });
+
   const stages = matrix?.stages || [];
   const programs = matrix?.programs || [];
-  const hasFilters = filters.search.trim() !== '' || filters.clientId || filters.status || filters.payment;
+  const hasFilters = filters.search.trim() !== '' || filters.clientId || filters.status || filters.payment || filters.priority;
 
   const filtered = useMemo(() => {
     let rows = programs;
@@ -195,8 +234,29 @@ export default function ProgramsPage() {
     if (filters.clientId) rows = rows.filter(p => p.client_id === filters.clientId);
     if (filters.status) rows = rows.filter(p => p.status === filters.status);
     if (filters.payment) rows = rows.filter(p => p.payment_status === filters.payment);
+    if (filters.priority) rows = rows.filter(p => p.priority === filters.priority);
     return rows;
   }, [programs, filters]);
+
+  const STATUS_ORDER = Object.keys(STATUS_META);
+  const PRIORITY_ORDER = Object.keys(PRIORITY_META);
+
+  function toggleSort(key) {
+    setSort(s => s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' });
+  }
+
+  const sorted = useMemo(() => {
+    if (!sort.key) return filtered;
+    const rows = [...filtered];
+    rows.sort((a, b) => {
+      let cmp = 0;
+      if (sort.key === 'name') cmp = a.name.localeCompare(b.name);
+      else if (sort.key === 'status') cmp = STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status);
+      else if (sort.key === 'priority') cmp = PRIORITY_ORDER.indexOf(a.priority) - PRIORITY_ORDER.indexOf(b.priority);
+      return sort.dir === 'asc' ? cmp : -cmp;
+    });
+    return rows;
+  }, [filtered, sort]);
 
   const inProgressCounts = useMemo(() => {
     const counts = {};
@@ -277,6 +337,16 @@ export default function ProgramsPage() {
               {Object.entries(PAYMENT_META).map(([v, m]) => <option key={v} value={v}>{m.label}</option>)}
             </select>
 
+            <select
+              value={filters.priority}
+              onChange={e => setFilters(f => ({ ...f, priority: e.target.value }))}
+              className={`text-xs border rounded-lg px-2.5 py-1.5 outline-none cursor-pointer transition-colors ${
+                filters.priority ? 'border-indigo-300 text-indigo-700 bg-indigo-50 font-medium' : 'border-slate-200 text-slate-500 bg-white'
+              }`}>
+              <option value="">All priorities</option>
+              {Object.entries(PRIORITY_META).map(([v, m]) => <option key={v} value={v}>{m.label}</option>)}
+            </select>
+
             {hasFilters && (
               <button onClick={() => setFilters(EMPTY_FILTERS)}
                 className="text-xs text-slate-400 hover:text-indigo-600 transition-colors flex items-center gap-1 ml-1">
@@ -309,8 +379,15 @@ export default function ProgramsPage() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-slate-100">
-                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Program</th>
-                  <th className="px-2 py-2.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
+                  <th className="px-4 py-2.5 text-left">
+                    <SortHeader label="Program" sortKey="name" sort={sort} onSort={toggleSort} />
+                  </th>
+                  <th className="px-2 py-2.5 text-left">
+                    <SortHeader label="Priority" sortKey="priority" sort={sort} onSort={toggleSort} />
+                  </th>
+                  <th className="px-2 py-2.5 text-left">
+                    <SortHeader label="Status" sortKey="status" sort={sort} onSort={toggleSort} />
+                  </th>
                   {stages.map(s => (
                     <th key={s.id} className="px-2 py-2.5 text-center min-w-[84px]">
                       <div className="w-6 h-0.5 rounded-full mx-auto mb-1.5" style={{ backgroundColor: s.color }} />
@@ -318,10 +395,11 @@ export default function ProgramsPage() {
                     </th>
                   ))}
                   <th className="px-4 py-2.5 text-center text-xs font-semibold text-slate-500 uppercase tracking-wider">Payment</th>
+                  <th className="px-2 py-2.5 w-8"></th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.map(p => (
+                {sorted.map(p => (
                   <tr key={p.id} className="border-b border-slate-50 hover:bg-slate-50/70">
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
@@ -357,6 +435,15 @@ export default function ProgramsPage() {
                     </td>
                     <td className="px-2 py-3">
                       <select
+                        value={p.priority}
+                        disabled={!canManage}
+                        onChange={ev => updateProg.mutate({ id: p.id, priority: ev.target.value })}
+                        className={`flex items-center text-xs font-semibold rounded-full px-2.5 py-1 border-none outline-none cursor-pointer disabled:cursor-default ${PRIORITY_META[p.priority]?.cls}`}>
+                        {Object.entries(PRIORITY_META).map(([v, m]) => <option key={v} value={v}>{m.label}</option>)}
+                      </select>
+                    </td>
+                    <td className="px-2 py-3">
+                      <select
                         value={p.status}
                         disabled={!canManage}
                         onChange={ev => updateProg.mutate({ id: p.id, status: ev.target.value })}
@@ -384,11 +471,21 @@ export default function ProgramsPage() {
                         {Object.entries(PAYMENT_META).map(([v, m]) => <option key={v} value={v}>{m.label}</option>)}
                       </select>
                     </td>
+                    <td className="px-2 py-3">
+                      {canDelete && (
+                        <button
+                          onClick={() => { if (confirm(`Delete program "${p.name}"? This cannot be undone.`)) deleteProg.mutate(p.id); }}
+                          title="Delete program"
+                          className="p-1 text-slate-300 hover:text-red-500 rounded transition-colors">
+                          <Trash2 size={13} />
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))}
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={stages.length + 3} className="px-4 py-16 text-center text-sm text-slate-400">
+                    <td colSpan={stages.length + 5} className="px-4 py-16 text-center text-sm text-slate-400">
                       No programs match your filters.
                     </td>
                   </tr>
@@ -397,12 +494,13 @@ export default function ProgramsPage() {
               {filtered.length > 0 && (
                 <tfoot>
                   <tr className="border-t border-slate-200 bg-slate-50/60">
-                    <td className="px-4 py-2 text-xs font-semibold text-slate-500 uppercase tracking-wider" colSpan={2}>In progress</td>
+                    <td className="px-4 py-2 text-xs font-semibold text-slate-500 uppercase tracking-wider" colSpan={3}>In progress</td>
                     {stages.map(s => (
                       <td key={s.id} className="px-2 py-2 text-center text-sm font-semibold text-slate-600">
                         {inProgressCounts[s.id] || 0}
                       </td>
                     ))}
+                    <td />
                     <td />
                   </tr>
                 </tfoot>
@@ -428,6 +526,7 @@ export default function ProgramsPage() {
         <ProgramDetailsModal
           program={detailsProgram}
           canManage={canManage}
+          canDelete={canDelete}
           onClose={() => setDetailsProgram(null)}
         />
       )}

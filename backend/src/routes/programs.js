@@ -120,7 +120,10 @@ router.post('/', async (req, res, next) => {
   try {
     if (!(await assertProgramsWrite(req, res))) return;
 
-    const { client_id, new_client, name, owner_id } = req.body;
+    const { client_id, new_client, name, owner_id, priority } = req.body;
+    if (priority !== undefined && !['p0', 'p1', 'p2', 'p3'].includes(priority)) {
+      return res.status(400).json({ error: 'Invalid priority' });
+    }
 
     let clientId = null;
     let clientName = null;
@@ -145,8 +148,8 @@ router.post('/', async (req, res, next) => {
     if (!finalName) return res.status(400).json({ error: 'name is required' });
 
     const { rows } = await query(
-      `INSERT INTO programs (client_id, name, owner_id) VALUES ($1, $2, $3) RETURNING *`,
-      [clientId, finalName, owner_id || null]
+      `INSERT INTO programs (client_id, name, owner_id, priority) VALUES ($1, $2, $3, COALESCE($4, 'p2')) RETURNING *`,
+      [clientId, finalName, owner_id || null, priority || null]
     );
     res.status(201).json({ ...rows[0], client_name: clientName });
   } catch (err) { next(err); }
@@ -161,8 +164,11 @@ router.patch('/:id', async (req, res, next) => {
       const { rows: [project] } = await query('SELECT id FROM projects WHERE id = $1', [req.body.project_id]);
       if (!project) return res.status(404).json({ error: 'Project not found' });
     }
+    if ('priority' in req.body && !['p0', 'p1', 'p2', 'p3'].includes(req.body.priority)) {
+      return res.status(400).json({ error: 'Invalid priority' });
+    }
 
-    const allowed = ['name', 'owner_id', 'status', 'payment_status', 'is_archived', 'project_id', 'notes'];
+    const allowed = ['name', 'owner_id', 'status', 'payment_status', 'priority', 'is_archived', 'project_id', 'notes'];
     const updates = [];
     const params = [];
     allowed.forEach(f => {

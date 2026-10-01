@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { X, Target, Plus, Search } from 'lucide-react';
-import { updateProgram } from '../api/programs';
+import { X, Target, Plus, Search, Trash2 } from 'lucide-react';
+import { updateProgram, deleteProgram } from '../api/programs';
 import { getProjects } from '../api/projects';
 import { getProgramGoalLinks, getGoalLinkCandidates, linkProgramGoal, unlinkProgramGoal } from '../api/programGoalLinks';
 
@@ -9,7 +9,7 @@ const GOAL_TYPE_LABEL = {
   objective: 'Objective', key_result: 'Key Result', milestone: 'Milestone', initiative: 'Initiative', task: 'Task',
 };
 
-export default function ProgramDetailsModal({ program, canManage, onClose }) {
+export default function ProgramDetailsModal({ program, canManage, canDelete, onClose }) {
   const qc = useQueryClient();
   const [name, setName] = useState(program.name);
   const [goalSearch, setGoalSearch] = useState('');
@@ -39,6 +39,12 @@ export default function ProgramDetailsModal({ program, canManage, onClose }) {
   const unlinkGoal = useMutation({
     mutationFn: (goalId) => unlinkProgramGoal(program.id, goalId),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['program-goal-links', program.id] }),
+  });
+
+  const removeProgram = useMutation({
+    mutationFn: () => deleteProgram(program.id),
+    onSuccess: () => { invalidatePrograms(); onClose(); },
+    onError: (e) => alert(e.error || 'Failed to delete program'),
   });
 
   const cls = 'w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-indigo-300 bg-white';
@@ -124,6 +130,17 @@ export default function ProgramDetailsModal({ program, canManage, onClose }) {
             )}
           </div>
         </div>
+
+        {canDelete && (
+          <div className="flex-shrink-0 border-t border-slate-100 px-6 py-4">
+            <button
+              onClick={() => { if (confirm(`Delete program "${program.name}"? This cannot be undone.`)) removeProgram.mutate(); }}
+              disabled={removeProgram.isPending}
+              className="flex items-center gap-1.5 text-sm text-red-500 hover:text-red-600 font-medium disabled:opacity-40">
+              <Trash2 size={13} /> Delete program
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
